@@ -94,6 +94,14 @@ function getDefaultToken(
     return emitToken('NUMBER');
   }
 
+  if (stream.match(/True/)) {
+    return emitToken('TRUE');
+  }
+
+  if (stream.match(/False/)) {
+    return emitToken('FALSE');
+  }
+
   if (stream.match(/#/)) {
     if (!stream.match(/\n/)) {
       // comment lasts till end of line
@@ -116,6 +124,8 @@ export type BinaryOperationTokenType =
 export type TokenType =
   | BinaryOperationTokenType
   | 'NUMBER'
+  | 'TRUE'
+  | 'FALSE'
   | '('
   | ')'
   | 'COMMENT'

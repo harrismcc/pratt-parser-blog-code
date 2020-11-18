@@ -113,6 +113,8 @@ export class Parser extends AbstractParser {
   initialMap() {
     return {
       NUMBER: new Parselet.NumberParselet(),
+      TRUE: new Parselet.BooleanParselet(true),
+      FALSE: new Parselet.BooleanParselet(false),
       '(': new Parselet.ParenParselet(),
     };
   }

@@ -9,6 +9,7 @@ type TokenType =
   | 'keyword'
   | 'variable'
   | 'number'
+  | 'boolean'
   | 'comment'
   | 'string'
   | 'error'
@@ -29,6 +30,12 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
       switch (type) {
         case 'NUMBER':
           return 'number';
+
+        case 'TRUE':
+          return 'boolean';
+
+        case 'FALSE':
+          return 'boolean';
 
         case '(':
         case ')':
