@@ -8,6 +8,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const lexer_1 = require("./lexer");
 const editor_1 = require("./editor");
 const parser_1 = require("./parser");
+const typechecker_1 = require("./typechecker");
 const cmContainer = document.createElement('div');
 cmContainer.className = 'cm-container';
 document.body.appendChild(cmContainer);
@@ -17,11 +18,19 @@ outputContainer.className = 'output-container';
 document.body.appendChild(outputContainer);
 function updateOutput() {
     const ast = parser_1.parse(cm.getDoc().getValue());
-    cm.setOption('script-errors', ast.errors);
+    const typeErrors = typechecker_1.typecheck(ast.nodes);
+    if (ast.errors.length > 0) {
+        cm.setOption('script-errors', ast.errors);
+    }
+    else {
+        cm.setOption('script-errors', typeErrors);
+    }
     const tokens = lexer_1.getTokens(cm.getDoc().getValue());
     outputContainer.innerHTML = `\
+typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}
-tokens: ${JSON.stringify(tokens, null, 2)}`;
+tokens: ${JSON.stringify(tokens, null, 2)}
+`;
 }
 cm.on('change', updateOutput);
 updateOutput();
@@ -34,6 +43,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getToken = exports.getTokens = void 0;
 const StringStream_1 = __importDefault(require("./StringStream"));
 function getTokens(text) {
     const tokens = [];
@@ -104,6 +114,12 @@ function getDefaultToken(stream, state) {
     }
     if (stream.match(/-?[0-9]+(\.[0-9]+)?/)) {
         return emitToken('NUMBER');
+    }
+    if (stream.match(/True/)) {
+        return emitToken('TRUE');
+    }
+    if (stream.match(/False/)) {
+        return emitToken('FALSE');
     }
     if (stream.match(/#/)) {
         if (!stream.match(/\n/)) {
@@ -240,6 +256,7 @@ ___scope___.file("node_modules/codemirror/src/util/misc.js", function(exports, r
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.findFirst = exports.skipExtendingChars = exports.isExtendingChar = exports.isEmpty = exports.isWordChar = exports.isWordCharBasic = exports.createObj = exports.insertSorted = exports.map = exports.lst = exports.spaceStr = exports.findColumn = exports.sel_move = exports.sel_mouse = exports.sel_dontScroll = exports.Pass = exports.scrollerGap = exports.indexOf = exports.Delayed = exports.countColumn = exports.copyObj = exports.bind = void 0;
 function bind(f) {
     let args = Array.prototype.slice.call(arguments, 1);
     return function () { return f.apply(null, args); };
@@ -273,10 +290,29 @@ function countColumn(string, end, tabSize, startIndex, startValue) {
 }
 exports.countColumn = countColumn;
 class Delayed {
-    constructor() { this.id = null; }
+    constructor() {
+        this.id = null;
+        this.f = null;
+        this.time = 0;
+        this.handler = bind(this.onTimeout, this);
+    }
+    onTimeout(self) {
+        self.id = 0;
+        if (self.time <= +new Date) {
+            self.f();
+        }
+        else {
+            setTimeout(self.handler, self.time - +new Date);
+        }
+    }
     set(ms, f) {
-        clearTimeout(this.id);
-        this.id = setTimeout(f, ms);
+        this.f = f;
+        const time = +new Date + ms;
+        if (!this.id || time < this.time) {
+            clearTimeout(this.id);
+            this.id = setTimeout(this.handler, ms);
+            this.time = time;
+        }
     }
 }
 exports.Delayed = Delayed;
@@ -288,7 +324,7 @@ function indexOf(array, elt) {
 }
 exports.indexOf = indexOf;
 // Number of pixels added to scroller and sizer to hide scrollbar
-exports.scrollerGap = 30;
+exports.scrollerGap = 50;
 // Returned or thrown by various protocols to signal 'I'm not
 // handling this'.
 exports.Pass = { toString: function () { return "CodeMirror.Pass"; } };
@@ -415,6 +451,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.create = void 0;
 const codemirror_1 = __importDefault(require("codemirror"));
 require("codemirror/lib/codemirror.css");
 require("codemirror/addon/lint/lint");
@@ -445,14 +482,27 @@ exports.create = create;
 ___scope___.file("src/mode.js", function(exports, require, module, __filename, __dirname){
 /* fuse:injection: */ var stream = require("stream").Stream;
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
 var __importStar = (this && this.__importStar) || function (mod) {
     if (mod && mod.__esModule) return mod;
     var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MakeMode = void 0;
 // Code Mirror syntax-highlighing mode
 const lexer_1 = require("./lexer");
 const CM = __importStar(require("codemirror"));
@@ -467,6 +517,10 @@ function MakeMode(_config, _modeOptions) {
             switch (type) {
                 case 'NUMBER':
                     return 'number';
+                case 'TRUE':
+                    return 'boolean';
+                case 'FALSE':
+                    return 'boolean';
                 case '(':
                 case ')':
                     return 'bracket';
@@ -500,14 +554,27 @@ CM.defineMode('myMode', MakeMode);
 ___scope___.file("src/parser.js", function(exports, require, module, __filename, __dirname){
 
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
 var __importStar = (this && this.__importStar) || function (mod) {
     if (mod && mod.__esModule) return mod;
     var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.Parser = exports.AbstractParser = exports.parse = void 0;
 const Parselet = __importStar(require("./parselet"));
 const tokenstream_1 = require("./tokenstream");
 const position_1 = require("./position");
@@ -586,6 +653,8 @@ class Parser extends AbstractParser {
     initialMap() {
         return {
             NUMBER: new Parselet.NumberParselet(),
+            TRUE: new Parselet.BooleanParselet(true),
+            FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
         };
     }
@@ -610,6 +679,7 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
     parse(_parser, _tokens, token) {
@@ -673,6 +743,7 @@ ___scope___.file("src/position.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.ParseError = exports.join = exports.token2pos = void 0;
 function token2pos(token) {
     return {
         first_line: token.line,
@@ -706,6 +777,7 @@ ___scope___.file("src/tokenstream.js", function(exports, require, module, __file
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.TokenStream = void 0;
 const lexer_1 = require("./lexer");
 const position_1 = require("./position");
 class TokenStream {
@@ -740,7 +812,1888 @@ class TokenStream {
 exports.TokenStream = TokenStream;
 
 });
+___scope___.file("src/typechecker.js", function(exports, require, module, __filename, __dirname){
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TypeError = exports.typecheck = void 0;
+function typecheck(nodes) {
+    const errors = nodes.map(n => typecheckNode(n));
+    return [].concat(...errors);
+}
+exports.typecheck = typecheck;
+function typecheckNode(node) {
+    return checkerMap[node.type].check(node);
+}
+class TypeError {
+    constructor(message, position) {
+        this.message = message;
+        this.position = position;
+    }
+}
+exports.TypeError = TypeError;
+class CheckNumber {
+    check(node) {
+        return [];
+    }
+}
+class CheckBoolean {
+    check(node) {
+        return [];
+    }
+}
+class CheckBinary {
+    check(node) {
+        const errors = typecheckNode(node.left).concat(typecheckNode(node.right));
+        if (node.left.type != node.right.type) {
+            errors.push(new TypeError("incompatible types for binary operator", node.pos));
+        }
+        return errors;
+    }
+}
+const checkerMap = {
+    'Number': new CheckNumber(),
+    'Boolean': new CheckBoolean(),
+    'BinaryOperation': new CheckBinary()
+};
+
+});
 return ___scope___.entry = "src/index.js";
+});
+FuseBox.pkg("base64-js", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+'use strict'
+
+exports.byteLength = byteLength
+exports.toByteArray = toByteArray
+exports.fromByteArray = fromByteArray
+
+var lookup = []
+var revLookup = []
+var Arr = typeof Uint8Array !== 'undefined' ? Uint8Array : Array
+
+var code = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+for (var i = 0, len = code.length; i < len; ++i) {
+  lookup[i] = code[i]
+  revLookup[code.charCodeAt(i)] = i
+}
+
+// Support decoding URL-safe base64 strings, as Node.js does.
+// See: https://en.wikipedia.org/wiki/Base64#URL_applications
+revLookup['-'.charCodeAt(0)] = 62
+revLookup['_'.charCodeAt(0)] = 63
+
+function getLens (b64) {
+  var len = b64.length
+
+  if (len % 4 > 0) {
+    throw new Error('Invalid string. Length must be a multiple of 4')
+  }
+
+  // Trim off extra bytes after placeholder bytes are found
+  // See: https://github.com/beatgammit/base64-js/issues/42
+  var validLen = b64.indexOf('=')
+  if (validLen === -1) validLen = len
+
+  var placeHoldersLen = validLen === len
+    ? 0
+    : 4 - (validLen % 4)
+
+  return [validLen, placeHoldersLen]
+}
+
+// base64 is 4/3 + up to two characters of the original data
+function byteLength (b64) {
+  var lens = getLens(b64)
+  var validLen = lens[0]
+  var placeHoldersLen = lens[1]
+  return ((validLen + placeHoldersLen) * 3 / 4) - placeHoldersLen
+}
+
+function _byteLength (b64, validLen, placeHoldersLen) {
+  return ((validLen + placeHoldersLen) * 3 / 4) - placeHoldersLen
+}
+
+function toByteArray (b64) {
+  var tmp
+  var lens = getLens(b64)
+  var validLen = lens[0]
+  var placeHoldersLen = lens[1]
+
+  var arr = new Arr(_byteLength(b64, validLen, placeHoldersLen))
+
+  var curByte = 0
+
+  // if there are placeholders, only get up to the last complete 4 chars
+  var len = placeHoldersLen > 0
+    ? validLen - 4
+    : validLen
+
+  var i
+  for (i = 0; i < len; i += 4) {
+    tmp =
+      (revLookup[b64.charCodeAt(i)] << 18) |
+      (revLookup[b64.charCodeAt(i + 1)] << 12) |
+      (revLookup[b64.charCodeAt(i + 2)] << 6) |
+      revLookup[b64.charCodeAt(i + 3)]
+    arr[curByte++] = (tmp >> 16) & 0xFF
+    arr[curByte++] = (tmp >> 8) & 0xFF
+    arr[curByte++] = tmp & 0xFF
+  }
+
+  if (placeHoldersLen === 2) {
+    tmp =
+      (revLookup[b64.charCodeAt(i)] << 2) |
+      (revLookup[b64.charCodeAt(i + 1)] >> 4)
+    arr[curByte++] = tmp & 0xFF
+  }
+
+  if (placeHoldersLen === 1) {
+    tmp =
+      (revLookup[b64.charCodeAt(i)] << 10) |
+      (revLookup[b64.charCodeAt(i + 1)] << 4) |
+      (revLookup[b64.charCodeAt(i + 2)] >> 2)
+    arr[curByte++] = (tmp >> 8) & 0xFF
+    arr[curByte++] = tmp & 0xFF
+  }
+
+  return arr
+}
+
+function tripletToBase64 (num) {
+  return lookup[num >> 18 & 0x3F] +
+    lookup[num >> 12 & 0x3F] +
+    lookup[num >> 6 & 0x3F] +
+    lookup[num & 0x3F]
+}
+
+function encodeChunk (uint8, start, end) {
+  var tmp
+  var output = []
+  for (var i = start; i < end; i += 3) {
+    tmp =
+      ((uint8[i] << 16) & 0xFF0000) +
+      ((uint8[i + 1] << 8) & 0xFF00) +
+      (uint8[i + 2] & 0xFF)
+    output.push(tripletToBase64(tmp))
+  }
+  return output.join('')
+}
+
+function fromByteArray (uint8) {
+  var tmp
+  var len = uint8.length
+  var extraBytes = len % 3 // if we have 1 byte left, pad 2 bytes
+  var parts = []
+  var maxChunkLength = 16383 // must be multiple of 3
+
+  // go through the array every three bytes, we'll deal with trailing stuff later
+  for (var i = 0, len2 = len - extraBytes; i < len2; i += maxChunkLength) {
+    parts.push(encodeChunk(uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)))
+  }
+
+  // pad the end with zeros, but make sure to not forget the extra bytes
+  if (extraBytes === 1) {
+    tmp = uint8[len - 1]
+    parts.push(
+      lookup[tmp >> 2] +
+      lookup[(tmp << 4) & 0x3F] +
+      '=='
+    )
+  } else if (extraBytes === 2) {
+    tmp = (uint8[len - 2] << 8) + uint8[len - 1]
+    parts.push(
+      lookup[tmp >> 10] +
+      lookup[(tmp >> 4) & 0x3F] +
+      lookup[(tmp << 2) & 0x3F] +
+      '='
+    )
+  }
+
+  return parts.join('')
+}
+
+});
+return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("buffer", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+if (FuseBox.isServer) {
+	module.exports = global.require("buffer");
+} else {
+	/*!
+     * The buffer module from node.js, for the browser.
+     *
+     * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+     * @license  MIT
+     */
+	/* eslint-disable no-proto */
+
+	("use strict");
+
+	var base64 = require("base64-js");
+	var ieee754 = require("ieee754");
+
+	exports.Buffer = Buffer;
+	exports.FuseShim = true;
+	exports.SlowBuffer = SlowBuffer;
+	exports.INSPECT_MAX_BYTES = 50;
+
+	var K_MAX_LENGTH = 0x7fffffff;
+	exports.kMaxLength = K_MAX_LENGTH;
+
+	/**
+	 * If `Buffer.TYPED_ARRAY_SUPPORT`:
+	 *   === true    Use Uint8Array implementation (fastest)
+	 *   === false   Print warning and recommend using `buffer` v4.x which has an Object
+	 *               implementation (most compatible, even IE6)
+	 *
+	 * Browsers that support typed arrays are IE 10+, Firefox 4+, Chrome 7+, Safari 5.1+,
+	 * Opera 11.6+, iOS 4.2+.
+	 *
+	 * We report that the browser does not support typed arrays if the are not subclassable
+	 * using __proto__. Firefox 4-29 lacks support for adding new properties to `Uint8Array`
+	 * (See: https://bugzilla.mozilla.org/show_bug.cgi?id=695438). IE 10 lacks support
+	 * for __proto__ and has a buggy typed array implementation.
+	 */
+	Buffer.TYPED_ARRAY_SUPPORT = typedArraySupport();
+
+	if (!Buffer.TYPED_ARRAY_SUPPORT) {
+		console.error(
+			"This browser lacks typed array (Uint8Array) support which is required by " + "`buffer` v5.x. Use `buffer` v4.x if you require old browser support."
+		);
+	}
+
+	function typedArraySupport() {
+		// Can typed array instances can be augmented?
+		try {
+			var arr = new Uint8Array(1);
+			arr.__proto__ = {
+				__proto__: Uint8Array.prototype,
+				foo: function() {
+					return 42;
+				}
+			};
+			return arr.foo() === 42;
+		} catch (e) {
+			return false;
+		}
+	}
+
+	function createBuffer(length) {
+		if (length > K_MAX_LENGTH) {
+			throw new RangeError("Invalid typed array length");
+		}
+		// Return an augmented `Uint8Array` instance
+		var buf = new Uint8Array(length);
+		buf.__proto__ = Buffer.prototype;
+		return buf;
+	}
+
+	/**
+	 * The Buffer constructor returns instances of `Uint8Array` that have their
+	 * prototype changed to `Buffer.prototype`. Furthermore, `Buffer` is a subclass of
+	 * `Uint8Array`, so the returned instances will have all the node `Buffer` methods
+	 * and the `Uint8Array` methods. Square bracket notation works as expected -- it
+	 * returns a single octet.
+	 *
+	 * The `Uint8Array` prototype remains unmodified.
+	 */
+
+	function Buffer(arg, encodingOrOffset, length) {
+		// Common case.
+		if (typeof arg === "number") {
+			if (typeof encodingOrOffset === "string") {
+				throw new Error("If encoding is specified then the first argument must be a string");
+			}
+			return allocUnsafe(arg);
+		}
+		return from(arg, encodingOrOffset, length);
+	}
+
+	// Fix subarray() in ES2016. See: https://github.com/feross/buffer/pull/97
+	if (typeof Symbol !== "undefined" && Symbol.species && Buffer[Symbol.species] === Buffer) {
+		Object.defineProperty(Buffer, Symbol.species, {
+			value: null,
+			configurable: true,
+			enumerable: false,
+			writable: false
+		});
+	}
+
+	Buffer.poolSize = 8192; // not used by this implementation
+
+	function from(value, encodingOrOffset, length) {
+		if (typeof value === "number") {
+			throw new TypeError('"value" argument must not be a number');
+		}
+
+		if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) {
+			return fromArrayBuffer(value, encodingOrOffset, length);
+		}
+
+		if (typeof value === "string") {
+			return fromString(value, encodingOrOffset);
+		}
+
+		return fromObject(value);
+	}
+
+	/**
+	 * Functionally equivalent to Buffer(arg, encoding) but throws a TypeError
+	 * if value is a number.
+	 * Buffer.from(str[, encoding])
+	 * Buffer.from(array)
+	 * Buffer.from(buffer)
+	 * Buffer.from(arrayBuffer[, byteOffset[, length]])
+	 **/
+	Buffer.from = function(value, encodingOrOffset, length) {
+		return from(value, encodingOrOffset, length);
+	};
+
+	// Note: Change prototype *after* Buffer.from is defined to workaround Chrome bug:
+	// https://github.com/feross/buffer/pull/148
+	Buffer.prototype.__proto__ = Uint8Array.prototype;
+	Buffer.__proto__ = Uint8Array;
+
+	function assertSize(size) {
+		if (typeof size !== "number") {
+			throw new TypeError('"size" argument must be a number');
+		} else if (size < 0) {
+			throw new RangeError('"size" argument must not be negative');
+		}
+	}
+
+	function alloc(size, fill, encoding) {
+		assertSize(size);
+		if (size <= 0) {
+			return createBuffer(size);
+		}
+		if (fill !== undefined) {
+			// Only pay attention to encoding if it's a string. This
+			// prevents accidentally sending in a number that would
+			// be interpretted as a start offset.
+			return typeof encoding === "string" ? createBuffer(size).fill(fill, encoding) : createBuffer(size).fill(fill);
+		}
+		return createBuffer(size);
+	}
+
+	/**
+	 * Creates a new filled Buffer instance.
+	 * alloc(size[, fill[, encoding]])
+	 **/
+	Buffer.alloc = function(size, fill, encoding) {
+		return alloc(size, fill, encoding);
+	};
+
+	function allocUnsafe(size) {
+		assertSize(size);
+		return createBuffer(size < 0 ? 0 : checked(size) | 0);
+	}
+
+	/**
+	 * Equivalent to Buffer(num), by default creates a non-zero-filled Buffer instance.
+	 * */
+	Buffer.allocUnsafe = function(size) {
+		return allocUnsafe(size);
+	};
+	/**
+	 * Equivalent to SlowBuffer(num), by default creates a non-zero-filled Buffer instance.
+	 */
+	Buffer.allocUnsafeSlow = function(size) {
+		return allocUnsafe(size);
+	};
+
+	function fromString(string, encoding) {
+		if (typeof encoding !== "string" || encoding === "") {
+			encoding = "utf8";
+		}
+
+		if (!Buffer.isEncoding(encoding)) {
+			throw new TypeError('"encoding" must be a valid string encoding');
+		}
+
+		var length = byteLength(string, encoding) | 0;
+		var buf = createBuffer(length);
+
+		var actual = buf.write(string, encoding);
+
+		if (actual !== length) {
+			// Writing a hex string, for example, that contains invalid characters will
+			// cause everything after the first invalid character to be ignored. (e.g.
+			// 'abxxcd' will be treated as 'ab')
+			buf = buf.slice(0, actual);
+		}
+
+		return buf;
+	}
+
+	function fromArrayLike(array) {
+		var length = array.length < 0 ? 0 : checked(array.length) | 0;
+		var buf = createBuffer(length);
+		for (var i = 0; i < length; i += 1) {
+			buf[i] = array[i] & 255;
+		}
+		return buf;
+	}
+
+	function fromArrayBuffer(array, byteOffset, length) {
+		array.byteLength; // this throws if `array` is not a valid ArrayBuffer
+
+		if (byteOffset < 0 || array.byteLength < byteOffset) {
+			throw new RangeError("'offset' is out of bounds");
+		}
+
+		if (array.byteLength < byteOffset + (length || 0)) {
+			throw new RangeError("'length' is out of bounds");
+		}
+
+		var buf;
+		if (byteOffset === undefined && length === undefined) {
+			buf = new Uint8Array(array);
+		} else if (length === undefined) {
+			buf = new Uint8Array(array, byteOffset);
+		} else {
+			buf = new Uint8Array(array, byteOffset, length);
+		}
+
+		// Return an augmented `Uint8Array` instance
+		buf.__proto__ = Buffer.prototype;
+		return buf;
+	}
+
+	function fromObject(obj) {
+		if (Buffer.isBuffer(obj)) {
+			var len = checked(obj.length) | 0;
+			var buf = createBuffer(len);
+
+			if (buf.length === 0) {
+				return buf;
+			}
+
+			obj.copy(buf, 0, 0, len);
+			return buf;
+		}
+
+		if (obj) {
+			if ((typeof ArrayBuffer !== "undefined" && obj.buffer instanceof ArrayBuffer) || "length" in obj) {
+				if (typeof obj.length !== "number" || isnan(obj.length)) {
+					return createBuffer(0);
+				}
+				return fromArrayLike(obj);
+			}
+
+			if (obj.type === "Buffer" && Array.isArray(obj.data)) {
+				return fromArrayLike(obj.data);
+			}
+		}
+
+		throw new TypeError("First argument must be a string, Buffer, ArrayBuffer, Array, or array-like object.");
+	}
+
+	function checked(length) {
+		// Note: cannot use `length < K_MAX_LENGTH` here because that fails when
+		// length is NaN (which is otherwise coerced to zero.)
+		if (length >= K_MAX_LENGTH) {
+			throw new RangeError("Attempt to allocate Buffer larger than maximum " + "size: 0x" + K_MAX_LENGTH.toString(16) + " bytes");
+		}
+		return length | 0;
+	}
+
+	function SlowBuffer(length) {
+		if (+length != length) {
+			// eslint-disable-line eqeqeq
+			length = 0;
+		}
+		return Buffer.alloc(+length);
+	}
+
+	Buffer.isBuffer = function isBuffer(b) {
+		return !!(b != null && b._isBuffer);
+	};
+
+	Buffer.compare = function compare(a, b) {
+		if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) {
+			throw new TypeError("Arguments must be Buffers");
+		}
+
+		if (a === b) return 0;
+
+		var x = a.length;
+		var y = b.length;
+
+		for (var i = 0, len = Math.min(x, y); i < len; ++i) {
+			if (a[i] !== b[i]) {
+				x = a[i];
+				y = b[i];
+				break;
+			}
+		}
+
+		if (x < y) return -1;
+		if (y < x) return 1;
+		return 0;
+	};
+
+	Buffer.isEncoding = function isEncoding(encoding) {
+		switch (String(encoding).toLowerCase()) {
+			case "hex":
+			case "utf8":
+			case "utf-8":
+			case "ascii":
+			case "latin1":
+			case "binary":
+			case "base64":
+			case "ucs2":
+			case "ucs-2":
+			case "utf16le":
+			case "utf-16le":
+				return true;
+			default:
+				return false;
+		}
+	};
+
+	Buffer.concat = function concat(list, length) {
+		if (!Array.isArray(list)) {
+			throw new TypeError('"list" argument must be an Array of Buffers');
+		}
+
+		if (list.length === 0) {
+			return Buffer.alloc(0);
+		}
+
+		var i;
+		if (length === undefined) {
+			length = 0;
+			for (i = 0; i < list.length; ++i) {
+				length += list[i].length;
+			}
+		}
+
+		var buffer = Buffer.allocUnsafe(length);
+		var pos = 0;
+		for (i = 0; i < list.length; ++i) {
+			var buf = list[i];
+			if (!Buffer.isBuffer(buf)) {
+				throw new TypeError('"list" argument must be an Array of Buffers');
+			}
+			buf.copy(buffer, pos);
+			pos += buf.length;
+		}
+		return buffer;
+	};
+
+	function byteLength(string, encoding) {
+		if (Buffer.isBuffer(string)) {
+			return string.length;
+		}
+		if (typeof ArrayBuffer !== "undefined" && typeof ArrayBuffer.isView === "function" && (ArrayBuffer.isView(string) || string instanceof ArrayBuffer)) {
+			return string.byteLength;
+		}
+		if (typeof string !== "string") {
+			string = "" + string;
+		}
+
+		var len = string.length;
+		if (len === 0) return 0;
+
+		// Use a for loop to avoid recursion
+		var loweredCase = false;
+		for (;;) {
+			switch (encoding) {
+				case "ascii":
+				case "latin1":
+				case "binary":
+					return len;
+				case "utf8":
+				case "utf-8":
+				case undefined:
+					return utf8ToBytes(string).length;
+				case "ucs2":
+				case "ucs-2":
+				case "utf16le":
+				case "utf-16le":
+					return len * 2;
+				case "hex":
+					return len >>> 1;
+				case "base64":
+					return base64ToBytes(string).length;
+				default:
+					if (loweredCase) return utf8ToBytes(string).length; // assume utf8
+					encoding = ("" + encoding).toLowerCase();
+					loweredCase = true;
+			}
+		}
+	}
+	Buffer.byteLength = byteLength;
+
+	function slowToString(encoding, start, end) {
+		var loweredCase = false;
+
+		// No need to verify that "this.length <= MAX_UINT32" since it's a read-only
+		// property of a typed array.
+
+		// This behaves neither like String nor Uint8Array in that we set start/end
+		// to their upper/lower bounds if the value passed is out of range.
+		// undefined is handled specially as per ECMA-262 6th Edition,
+		// Section 13.3.3.7 Runtime Semantics: KeyedBindingInitialization.
+		if (start === undefined || start < 0) {
+			start = 0;
+		}
+		// Return early if start > this.length. Done here to prevent potential uint32
+		// coercion fail below.
+		if (start > this.length) {
+			return "";
+		}
+
+		if (end === undefined || end > this.length) {
+			end = this.length;
+		}
+
+		if (end <= 0) {
+			return "";
+		}
+
+		// Force coersion to uint32. This will also coerce falsey/NaN values to 0.
+		end >>>= 0;
+		start >>>= 0;
+
+		if (end <= start) {
+			return "";
+		}
+
+		if (!encoding) encoding = "utf8";
+
+		while (true) {
+			switch (encoding) {
+				case "hex":
+					return hexSlice(this, start, end);
+
+				case "utf8":
+				case "utf-8":
+					return utf8Slice(this, start, end);
+
+				case "ascii":
+					return asciiSlice(this, start, end);
+
+				case "latin1":
+				case "binary":
+					return latin1Slice(this, start, end);
+
+				case "base64":
+					return base64Slice(this, start, end);
+
+				case "ucs2":
+				case "ucs-2":
+				case "utf16le":
+				case "utf-16le":
+					return utf16leSlice(this, start, end);
+
+				default:
+					if (loweredCase) throw new TypeError("Unknown encoding: " + encoding);
+					encoding = (encoding + "").toLowerCase();
+					loweredCase = true;
+			}
+		}
+	}
+
+	// The property is used by `Buffer.isBuffer` and `is-buffer` (in Safari 5-7) to detect
+	// Buffer instances.
+	Buffer.prototype._isBuffer = true;
+
+	function swap(b, n, m) {
+		var i = b[n];
+		b[n] = b[m];
+		b[m] = i;
+	}
+
+	Buffer.prototype.swap16 = function swap16() {
+		var len = this.length;
+		if (len % 2 !== 0) {
+			throw new RangeError("Buffer size must be a multiple of 16-bits");
+		}
+		for (var i = 0; i < len; i += 2) {
+			swap(this, i, i + 1);
+		}
+		return this;
+	};
+
+	Buffer.prototype.swap32 = function swap32() {
+		var len = this.length;
+		if (len % 4 !== 0) {
+			throw new RangeError("Buffer size must be a multiple of 32-bits");
+		}
+		for (var i = 0; i < len; i += 4) {
+			swap(this, i, i + 3);
+			swap(this, i + 1, i + 2);
+		}
+		return this;
+	};
+
+	Buffer.prototype.swap64 = function swap64() {
+		var len = this.length;
+		if (len % 8 !== 0) {
+			throw new RangeError("Buffer size must be a multiple of 64-bits");
+		}
+		for (var i = 0; i < len; i += 8) {
+			swap(this, i, i + 7);
+			swap(this, i + 1, i + 6);
+			swap(this, i + 2, i + 5);
+			swap(this, i + 3, i + 4);
+		}
+		return this;
+	};
+
+	Buffer.prototype.toString = function toString() {
+		var length = this.length;
+		if (length === 0) return "";
+		if (arguments.length === 0) return utf8Slice(this, 0, length);
+		return slowToString.apply(this, arguments);
+	};
+
+	Buffer.prototype.equals = function equals(b) {
+		if (!Buffer.isBuffer(b)) throw new TypeError("Argument must be a Buffer");
+		if (this === b) return true;
+		return Buffer.compare(this, b) === 0;
+	};
+
+	Buffer.prototype.inspect = function inspect() {
+		var str = "";
+		var max = exports.INSPECT_MAX_BYTES;
+		if (this.length > 0) {
+			str = this.toString("hex", 0, max)
+				.match(/.{2}/g)
+				.join(" ");
+			if (this.length > max) str += " ... ";
+		}
+		return "<Buffer " + str + ">";
+	};
+
+	Buffer.prototype.compare = function compare(target, start, end, thisStart, thisEnd) {
+		if (!Buffer.isBuffer(target)) {
+			throw new TypeError("Argument must be a Buffer");
+		}
+
+		if (start === undefined) {
+			start = 0;
+		}
+		if (end === undefined) {
+			end = target ? target.length : 0;
+		}
+		if (thisStart === undefined) {
+			thisStart = 0;
+		}
+		if (thisEnd === undefined) {
+			thisEnd = this.length;
+		}
+
+		if (start < 0 || end > target.length || thisStart < 0 || thisEnd > this.length) {
+			throw new RangeError("out of range index");
+		}
+
+		if (thisStart >= thisEnd && start >= end) {
+			return 0;
+		}
+		if (thisStart >= thisEnd) {
+			return -1;
+		}
+		if (start >= end) {
+			return 1;
+		}
+
+		start >>>= 0;
+		end >>>= 0;
+		thisStart >>>= 0;
+		thisEnd >>>= 0;
+
+		if (this === target) return 0;
+
+		var x = thisEnd - thisStart;
+		var y = end - start;
+		var len = Math.min(x, y);
+
+		var thisCopy = this.slice(thisStart, thisEnd);
+		var targetCopy = target.slice(start, end);
+
+		for (var i = 0; i < len; ++i) {
+			if (thisCopy[i] !== targetCopy[i]) {
+				x = thisCopy[i];
+				y = targetCopy[i];
+				break;
+			}
+		}
+
+		if (x < y) return -1;
+		if (y < x) return 1;
+		return 0;
+	};
+
+	// Finds either the first index of `val` in `buffer` at offset >= `byteOffset`,
+	// OR the last index of `val` in `buffer` at offset <= `byteOffset`.
+	//
+	// Arguments:
+	// - buffer - a Buffer to search
+	// - val - a string, Buffer, or number
+	// - byteOffset - an index into `buffer`; will be clamped to an int32
+	// - encoding - an optional encoding, relevant is val is a string
+	// - dir - true for indexOf, false for lastIndexOf
+	function bidirectionalIndexOf(buffer, val, byteOffset, encoding, dir) {
+		// Empty buffer means no match
+		if (buffer.length === 0) return -1;
+
+		// Normalize byteOffset
+		if (typeof byteOffset === "string") {
+			encoding = byteOffset;
+			byteOffset = 0;
+		} else if (byteOffset > 0x7fffffff) {
+			byteOffset = 0x7fffffff;
+		} else if (byteOffset < -0x80000000) {
+			byteOffset = -0x80000000;
+		}
+		byteOffset = +byteOffset; // Coerce to Number.
+		if (isNaN(byteOffset)) {
+			// byteOffset: it it's undefined, null, NaN, "foo", etc, search whole buffer
+			byteOffset = dir ? 0 : buffer.length - 1;
+		}
+
+		// Normalize byteOffset: negative offsets start from the end of the buffer
+		if (byteOffset < 0) byteOffset = buffer.length + byteOffset;
+		if (byteOffset >= buffer.length) {
+			if (dir) return -1;
+			else byteOffset = buffer.length - 1;
+		} else if (byteOffset < 0) {
+			if (dir) byteOffset = 0;
+			else return -1;
+		}
+
+		// Normalize val
+		if (typeof val === "string") {
+			val = Buffer.from(val, encoding);
+		}
+
+		// Finally, search either indexOf (if dir is true) or lastIndexOf
+		if (Buffer.isBuffer(val)) {
+			// Special case: looking for empty string/buffer always fails
+			if (val.length === 0) {
+				return -1;
+			}
+			return arrayIndexOf(buffer, val, byteOffset, encoding, dir);
+		} else if (typeof val === "number") {
+			val = val & 0xff; // Search for a byte value [0-255]
+			if (typeof Uint8Array.prototype.indexOf === "function") {
+				if (dir) {
+					return Uint8Array.prototype.indexOf.call(buffer, val, byteOffset);
+				} else {
+					return Uint8Array.prototype.lastIndexOf.call(buffer, val, byteOffset);
+				}
+			}
+			return arrayIndexOf(buffer, [val], byteOffset, encoding, dir);
+		}
+
+		throw new TypeError("val must be string, number or Buffer");
+	}
+
+	function arrayIndexOf(arr, val, byteOffset, encoding, dir) {
+		var indexSize = 1;
+		var arrLength = arr.length;
+		var valLength = val.length;
+
+		if (encoding !== undefined) {
+			encoding = String(encoding).toLowerCase();
+			if (encoding === "ucs2" || encoding === "ucs-2" || encoding === "utf16le" || encoding === "utf-16le") {
+				if (arr.length < 2 || val.length < 2) {
+					return -1;
+				}
+				indexSize = 2;
+				arrLength /= 2;
+				valLength /= 2;
+				byteOffset /= 2;
+			}
+		}
+
+		function read(buf, i) {
+			if (indexSize === 1) {
+				return buf[i];
+			} else {
+				return buf.readUInt16BE(i * indexSize);
+			}
+		}
+
+		var i;
+		if (dir) {
+			var foundIndex = -1;
+			for (i = byteOffset; i < arrLength; i++) {
+				if (read(arr, i) === read(val, foundIndex === -1 ? 0 : i - foundIndex)) {
+					if (foundIndex === -1) foundIndex = i;
+					if (i - foundIndex + 1 === valLength) return foundIndex * indexSize;
+				} else {
+					if (foundIndex !== -1) i -= i - foundIndex;
+					foundIndex = -1;
+				}
+			}
+		} else {
+			if (byteOffset + valLength > arrLength) byteOffset = arrLength - valLength;
+			for (i = byteOffset; i >= 0; i--) {
+				var found = true;
+				for (var j = 0; j < valLength; j++) {
+					if (read(arr, i + j) !== read(val, j)) {
+						found = false;
+						break;
+					}
+				}
+				if (found) return i;
+			}
+		}
+
+		return -1;
+	}
+
+	Buffer.prototype.includes = function includes(val, byteOffset, encoding) {
+		return this.indexOf(val, byteOffset, encoding) !== -1;
+	};
+
+	Buffer.prototype.indexOf = function indexOf(val, byteOffset, encoding) {
+		return bidirectionalIndexOf(this, val, byteOffset, encoding, true);
+	};
+
+	Buffer.prototype.lastIndexOf = function lastIndexOf(val, byteOffset, encoding) {
+		return bidirectionalIndexOf(this, val, byteOffset, encoding, false);
+	};
+
+	function hexWrite(buf, string, offset, length) {
+		offset = Number(offset) || 0;
+		var remaining = buf.length - offset;
+		if (!length) {
+			length = remaining;
+		} else {
+			length = Number(length);
+			if (length > remaining) {
+				length = remaining;
+			}
+		}
+
+		// must be an even number of digits
+		var strLen = string.length;
+		if (strLen % 2 !== 0) throw new TypeError("Invalid hex string");
+
+		if (length > strLen / 2) {
+			length = strLen / 2;
+		}
+		for (var i = 0; i < length; ++i) {
+			var parsed = parseInt(string.substr(i * 2, 2), 16);
+			if (isNaN(parsed)) return i;
+			buf[offset + i] = parsed;
+		}
+		return i;
+	}
+
+	function utf8Write(buf, string, offset, length) {
+		return blitBuffer(utf8ToBytes(string, buf.length - offset), buf, offset, length);
+	}
+
+	function asciiWrite(buf, string, offset, length) {
+		return blitBuffer(asciiToBytes(string), buf, offset, length);
+	}
+
+	function latin1Write(buf, string, offset, length) {
+		return asciiWrite(buf, string, offset, length);
+	}
+
+	function base64Write(buf, string, offset, length) {
+		return blitBuffer(base64ToBytes(string), buf, offset, length);
+	}
+
+	function ucs2Write(buf, string, offset, length) {
+		return blitBuffer(utf16leToBytes(string, buf.length - offset), buf, offset, length);
+	}
+
+	Buffer.prototype.write = function write(string, offset, length, encoding) {
+		// Buffer#write(string)
+		if (offset === undefined) {
+			encoding = "utf8";
+			length = this.length;
+			offset = 0;
+			// Buffer#write(string, encoding)
+		} else if (length === undefined && typeof offset === "string") {
+			encoding = offset;
+			length = this.length;
+			offset = 0;
+			// Buffer#write(string, offset[, length][, encoding])
+		} else if (isFinite(offset)) {
+			offset = offset >>> 0;
+			if (isFinite(length)) {
+				length = length >>> 0;
+				if (encoding === undefined) encoding = "utf8";
+			} else {
+				encoding = length;
+				length = undefined;
+			}
+			// legacy write(string, encoding, offset, length) - remove in v0.13
+		} else {
+			throw new Error("Buffer.write(string, encoding, offset[, length]) is no longer supported");
+		}
+
+		var remaining = this.length - offset;
+		if (length === undefined || length > remaining) length = remaining;
+
+		if ((string.length > 0 && (length < 0 || offset < 0)) || offset > this.length) {
+			throw new RangeError("Attempt to write outside buffer bounds");
+		}
+
+		if (!encoding) encoding = "utf8";
+
+		var loweredCase = false;
+		for (;;) {
+			switch (encoding) {
+				case "hex":
+					return hexWrite(this, string, offset, length);
+
+				case "utf8":
+				case "utf-8":
+					return utf8Write(this, string, offset, length);
+
+				case "ascii":
+					return asciiWrite(this, string, offset, length);
+
+				case "latin1":
+				case "binary":
+					return latin1Write(this, string, offset, length);
+
+				case "base64":
+					// Warning: maxLength not taken into account in base64Write
+					return base64Write(this, string, offset, length);
+
+				case "ucs2":
+				case "ucs-2":
+				case "utf16le":
+				case "utf-16le":
+					return ucs2Write(this, string, offset, length);
+
+				default:
+					if (loweredCase) throw new TypeError("Unknown encoding: " + encoding);
+					encoding = ("" + encoding).toLowerCase();
+					loweredCase = true;
+			}
+		}
+	};
+
+	Buffer.prototype.toJSON = function toJSON() {
+		return {
+			type: "Buffer",
+			data: Array.prototype.slice.call(this._arr || this, 0)
+		};
+	};
+
+	function base64Slice(buf, start, end) {
+		if (start === 0 && end === buf.length) {
+			return base64.fromByteArray(buf);
+		} else {
+			return base64.fromByteArray(buf.slice(start, end));
+		}
+	}
+
+	function utf8Slice(buf, start, end) {
+		end = Math.min(buf.length, end);
+		var res = [];
+
+		var i = start;
+		while (i < end) {
+			var firstByte = buf[i];
+			var codePoint = null;
+			var bytesPerSequence = firstByte > 0xef ? 4 : firstByte > 0xdf ? 3 : firstByte > 0xbf ? 2 : 1;
+
+			if (i + bytesPerSequence <= end) {
+				var secondByte, thirdByte, fourthByte, tempCodePoint;
+
+				switch (bytesPerSequence) {
+					case 1:
+						if (firstByte < 0x80) {
+							codePoint = firstByte;
+						}
+						break;
+					case 2:
+						secondByte = buf[i + 1];
+						if ((secondByte & 0xc0) === 0x80) {
+							tempCodePoint = ((firstByte & 0x1f) << 0x6) | (secondByte & 0x3f);
+							if (tempCodePoint > 0x7f) {
+								codePoint = tempCodePoint;
+							}
+						}
+						break;
+					case 3:
+						secondByte = buf[i + 1];
+						thirdByte = buf[i + 2];
+						if ((secondByte & 0xc0) === 0x80 && (thirdByte & 0xc0) === 0x80) {
+							tempCodePoint = ((firstByte & 0xf) << 0xc) | ((secondByte & 0x3f) << 0x6) | (thirdByte & 0x3f);
+							if (tempCodePoint > 0x7ff && (tempCodePoint < 0xd800 || tempCodePoint > 0xdfff)) {
+								codePoint = tempCodePoint;
+							}
+						}
+						break;
+					case 4:
+						secondByte = buf[i + 1];
+						thirdByte = buf[i + 2];
+						fourthByte = buf[i + 3];
+						if ((secondByte & 0xc0) === 0x80 && (thirdByte & 0xc0) === 0x80 && (fourthByte & 0xc0) === 0x80) {
+							tempCodePoint = ((firstByte & 0xf) << 0x12) | ((secondByte & 0x3f) << 0xc) | ((thirdByte & 0x3f) << 0x6) | (fourthByte & 0x3f);
+							if (tempCodePoint > 0xffff && tempCodePoint < 0x110000) {
+								codePoint = tempCodePoint;
+							}
+						}
+				}
+			}
+
+			if (codePoint === null) {
+				// we did not generate a valid codePoint so insert a
+				// replacement char (U+FFFD) and advance only 1 byte
+				codePoint = 0xfffd;
+				bytesPerSequence = 1;
+			} else if (codePoint > 0xffff) {
+				// encode to utf16 (surrogate pair dance)
+				codePoint -= 0x10000;
+				res.push(((codePoint >>> 10) & 0x3ff) | 0xd800);
+				codePoint = 0xdc00 | (codePoint & 0x3ff);
+			}
+
+			res.push(codePoint);
+			i += bytesPerSequence;
+		}
+
+		return decodeCodePointsArray(res);
+	}
+
+	// Based on http://stackoverflow.com/a/22747272/680742, the browser with
+	// the lowest limit is Chrome, with 0x10000 args.
+	// We go 1 magnitude less, for safety
+	var MAX_ARGUMENTS_LENGTH = 0x1000;
+
+	function decodeCodePointsArray(codePoints) {
+		var len = codePoints.length;
+		if (len <= MAX_ARGUMENTS_LENGTH) {
+			return String.fromCharCode.apply(String, codePoints); // avoid extra slice()
+		}
+
+		// Decode in chunks to avoid "call stack size exceeded".
+		var res = "";
+		var i = 0;
+		while (i < len) {
+			res += String.fromCharCode.apply(String, codePoints.slice(i, (i += MAX_ARGUMENTS_LENGTH)));
+		}
+		return res;
+	}
+
+	function asciiSlice(buf, start, end) {
+		var ret = "";
+		end = Math.min(buf.length, end);
+
+		for (var i = start; i < end; ++i) {
+			ret += String.fromCharCode(buf[i] & 0x7f);
+		}
+		return ret;
+	}
+
+	function latin1Slice(buf, start, end) {
+		var ret = "";
+		end = Math.min(buf.length, end);
+
+		for (var i = start; i < end; ++i) {
+			ret += String.fromCharCode(buf[i]);
+		}
+		return ret;
+	}
+
+	function hexSlice(buf, start, end) {
+		var len = buf.length;
+
+		if (!start || start < 0) start = 0;
+		if (!end || end < 0 || end > len) end = len;
+
+		var out = "";
+		for (var i = start; i < end; ++i) {
+			out += toHex(buf[i]);
+		}
+		return out;
+	}
+
+	function utf16leSlice(buf, start, end) {
+		var bytes = buf.slice(start, end);
+		var res = "";
+		for (var i = 0; i < bytes.length; i += 2) {
+			res += String.fromCharCode(bytes[i] + bytes[i + 1] * 256);
+		}
+		return res;
+	}
+
+	Buffer.prototype.slice = function slice(start, end) {
+		var len = this.length;
+		start = ~~start;
+		end = end === undefined ? len : ~~end;
+
+		if (start < 0) {
+			start += len;
+			if (start < 0) start = 0;
+		} else if (start > len) {
+			start = len;
+		}
+
+		if (end < 0) {
+			end += len;
+			if (end < 0) end = 0;
+		} else if (end > len) {
+			end = len;
+		}
+
+		if (end < start) end = start;
+
+		var newBuf = this.subarray(start, end);
+		// Return an augmented `Uint8Array` instance
+		newBuf.__proto__ = Buffer.prototype;
+		return newBuf;
+	};
+
+	/*
+     * Need to make sure that buffer isn't trying to write out of bounds.
+     */
+	function checkOffset(offset, ext, length) {
+		if (offset % 1 !== 0 || offset < 0) throw new RangeError("offset is not uint");
+		if (offset + ext > length) throw new RangeError("Trying to access beyond buffer length");
+	}
+
+	Buffer.prototype.readUIntLE = function readUIntLE(offset, byteLength, noAssert) {
+		offset = offset >>> 0;
+		byteLength = byteLength >>> 0;
+		if (!noAssert) checkOffset(offset, byteLength, this.length);
+
+		var val = this[offset];
+		var mul = 1;
+		var i = 0;
+		while (++i < byteLength && (mul *= 0x100)) {
+			val += this[offset + i] * mul;
+		}
+
+		return val;
+	};
+
+	Buffer.prototype.readUIntBE = function readUIntBE(offset, byteLength, noAssert) {
+		offset = offset >>> 0;
+		byteLength = byteLength >>> 0;
+		if (!noAssert) {
+			checkOffset(offset, byteLength, this.length);
+		}
+
+		var val = this[offset + --byteLength];
+		var mul = 1;
+		while (byteLength > 0 && (mul *= 0x100)) {
+			val += this[offset + --byteLength] * mul;
+		}
+
+		return val;
+	};
+
+	Buffer.prototype.readUInt8 = function readUInt8(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 1, this.length);
+		return this[offset];
+	};
+
+	Buffer.prototype.readUInt16LE = function readUInt16LE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 2, this.length);
+		return this[offset] | (this[offset + 1] << 8);
+	};
+
+	Buffer.prototype.readUInt16BE = function readUInt16BE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 2, this.length);
+		return (this[offset] << 8) | this[offset + 1];
+	};
+
+	Buffer.prototype.readUInt32LE = function readUInt32LE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 4, this.length);
+
+		return (this[offset] | (this[offset + 1] << 8) | (this[offset + 2] << 16)) + this[offset + 3] * 0x1000000;
+	};
+
+	Buffer.prototype.readUInt32BE = function readUInt32BE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 4, this.length);
+
+		return this[offset] * 0x1000000 + ((this[offset + 1] << 16) | (this[offset + 2] << 8) | this[offset + 3]);
+	};
+
+	Buffer.prototype.readIntLE = function readIntLE(offset, byteLength, noAssert) {
+		offset = offset >>> 0;
+		byteLength = byteLength >>> 0;
+		if (!noAssert) checkOffset(offset, byteLength, this.length);
+
+		var val = this[offset];
+		var mul = 1;
+		var i = 0;
+		while (++i < byteLength && (mul *= 0x100)) {
+			val += this[offset + i] * mul;
+		}
+		mul *= 0x80;
+
+		if (val >= mul) val -= Math.pow(2, 8 * byteLength);
+
+		return val;
+	};
+
+	Buffer.prototype.readIntBE = function readIntBE(offset, byteLength, noAssert) {
+		offset = offset >>> 0;
+		byteLength = byteLength >>> 0;
+		if (!noAssert) checkOffset(offset, byteLength, this.length);
+
+		var i = byteLength;
+		var mul = 1;
+		var val = this[offset + --i];
+		while (i > 0 && (mul *= 0x100)) {
+			val += this[offset + --i] * mul;
+		}
+		mul *= 0x80;
+
+		if (val >= mul) val -= Math.pow(2, 8 * byteLength);
+
+		return val;
+	};
+
+	Buffer.prototype.readInt8 = function readInt8(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 1, this.length);
+		if (!(this[offset] & 0x80)) return this[offset];
+		return (0xff - this[offset] + 1) * -1;
+	};
+
+	Buffer.prototype.readInt16LE = function readInt16LE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 2, this.length);
+		var val = this[offset] | (this[offset + 1] << 8);
+		return val & 0x8000 ? val | 0xffff0000 : val;
+	};
+
+	Buffer.prototype.readInt16BE = function readInt16BE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 2, this.length);
+		var val = this[offset + 1] | (this[offset] << 8);
+		return val & 0x8000 ? val | 0xffff0000 : val;
+	};
+
+	Buffer.prototype.readInt32LE = function readInt32LE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 4, this.length);
+
+		return this[offset] | (this[offset + 1] << 8) | (this[offset + 2] << 16) | (this[offset + 3] << 24);
+	};
+
+	Buffer.prototype.readInt32BE = function readInt32BE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 4, this.length);
+
+		return (this[offset] << 24) | (this[offset + 1] << 16) | (this[offset + 2] << 8) | this[offset + 3];
+	};
+
+	Buffer.prototype.readFloatLE = function readFloatLE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 4, this.length);
+		return ieee754.read(this, offset, true, 23, 4);
+	};
+
+	Buffer.prototype.readFloatBE = function readFloatBE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 4, this.length);
+		return ieee754.read(this, offset, false, 23, 4);
+	};
+
+	Buffer.prototype.readDoubleLE = function readDoubleLE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 8, this.length);
+		return ieee754.read(this, offset, true, 52, 8);
+	};
+
+	Buffer.prototype.readDoubleBE = function readDoubleBE(offset, noAssert) {
+		offset = offset >>> 0;
+		if (!noAssert) checkOffset(offset, 8, this.length);
+		return ieee754.read(this, offset, false, 52, 8);
+	};
+
+	function checkInt(buf, value, offset, ext, max, min) {
+		if (!Buffer.isBuffer(buf)) throw new TypeError('"buffer" argument must be a Buffer instance');
+		if (value > max || value < min) throw new RangeError('"value" argument is out of bounds');
+		if (offset + ext > buf.length) throw new RangeError("Index out of range");
+	}
+
+	Buffer.prototype.writeUIntLE = function writeUIntLE(value, offset, byteLength, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		byteLength = byteLength >>> 0;
+		if (!noAssert) {
+			var maxBytes = Math.pow(2, 8 * byteLength) - 1;
+			checkInt(this, value, offset, byteLength, maxBytes, 0);
+		}
+
+		var mul = 1;
+		var i = 0;
+		this[offset] = value & 0xff;
+		while (++i < byteLength && (mul *= 0x100)) {
+			this[offset + i] = (value / mul) & 0xff;
+		}
+
+		return offset + byteLength;
+	};
+
+	Buffer.prototype.writeUIntBE = function writeUIntBE(value, offset, byteLength, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		byteLength = byteLength >>> 0;
+		if (!noAssert) {
+			var maxBytes = Math.pow(2, 8 * byteLength) - 1;
+			checkInt(this, value, offset, byteLength, maxBytes, 0);
+		}
+
+		var i = byteLength - 1;
+		var mul = 1;
+		this[offset + i] = value & 0xff;
+		while (--i >= 0 && (mul *= 0x100)) {
+			this[offset + i] = (value / mul) & 0xff;
+		}
+
+		return offset + byteLength;
+	};
+
+	Buffer.prototype.writeUInt8 = function writeUInt8(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 1, 0xff, 0);
+		this[offset] = value & 0xff;
+		return offset + 1;
+	};
+
+	Buffer.prototype.writeUInt16LE = function writeUInt16LE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0);
+		this[offset] = value & 0xff;
+		this[offset + 1] = value >>> 8;
+		return offset + 2;
+	};
+
+	Buffer.prototype.writeUInt16BE = function writeUInt16BE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0);
+		this[offset] = value >>> 8;
+		this[offset + 1] = value & 0xff;
+		return offset + 2;
+	};
+
+	Buffer.prototype.writeUInt32LE = function writeUInt32LE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 4, 0xffffffff, 0);
+		this[offset + 3] = value >>> 24;
+		this[offset + 2] = value >>> 16;
+		this[offset + 1] = value >>> 8;
+		this[offset] = value & 0xff;
+		return offset + 4;
+	};
+
+	Buffer.prototype.writeUInt32BE = function writeUInt32BE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 4, 0xffffffff, 0);
+		this[offset] = value >>> 24;
+		this[offset + 1] = value >>> 16;
+		this[offset + 2] = value >>> 8;
+		this[offset + 3] = value & 0xff;
+		return offset + 4;
+	};
+
+	Buffer.prototype.writeIntLE = function writeIntLE(value, offset, byteLength, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) {
+			var limit = Math.pow(2, 8 * byteLength - 1);
+
+			checkInt(this, value, offset, byteLength, limit - 1, -limit);
+		}
+
+		var i = 0;
+		var mul = 1;
+		var sub = 0;
+		this[offset] = value & 0xff;
+		while (++i < byteLength && (mul *= 0x100)) {
+			if (value < 0 && sub === 0 && this[offset + i - 1] !== 0) {
+				sub = 1;
+			}
+			this[offset + i] = (((value / mul) >> 0) - sub) & 0xff;
+		}
+
+		return offset + byteLength;
+	};
+
+	Buffer.prototype.writeIntBE = function writeIntBE(value, offset, byteLength, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) {
+			var limit = Math.pow(2, 8 * byteLength - 1);
+
+			checkInt(this, value, offset, byteLength, limit - 1, -limit);
+		}
+
+		var i = byteLength - 1;
+		var mul = 1;
+		var sub = 0;
+		this[offset + i] = value & 0xff;
+		while (--i >= 0 && (mul *= 0x100)) {
+			if (value < 0 && sub === 0 && this[offset + i + 1] !== 0) {
+				sub = 1;
+			}
+			this[offset + i] = (((value / mul) >> 0) - sub) & 0xff;
+		}
+
+		return offset + byteLength;
+	};
+
+	Buffer.prototype.writeInt8 = function writeInt8(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 1, 0x7f, -0x80);
+		if (value < 0) value = 0xff + value + 1;
+		this[offset] = value & 0xff;
+		return offset + 1;
+	};
+
+	Buffer.prototype.writeInt16LE = function writeInt16LE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000);
+		this[offset] = value & 0xff;
+		this[offset + 1] = value >>> 8;
+		return offset + 2;
+	};
+
+	Buffer.prototype.writeInt16BE = function writeInt16BE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000);
+		this[offset] = value >>> 8;
+		this[offset + 1] = value & 0xff;
+		return offset + 2;
+	};
+
+	Buffer.prototype.writeInt32LE = function writeInt32LE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000);
+		this[offset] = value & 0xff;
+		this[offset + 1] = value >>> 8;
+		this[offset + 2] = value >>> 16;
+		this[offset + 3] = value >>> 24;
+		return offset + 4;
+	};
+
+	Buffer.prototype.writeInt32BE = function writeInt32BE(value, offset, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000);
+		if (value < 0) value = 0xffffffff + value + 1;
+		this[offset] = value >>> 24;
+		this[offset + 1] = value >>> 16;
+		this[offset + 2] = value >>> 8;
+		this[offset + 3] = value & 0xff;
+		return offset + 4;
+	};
+
+	function checkIEEE754(buf, value, offset, ext, max, min) {
+		if (offset + ext > buf.length) throw new RangeError("Index out of range");
+		if (offset < 0) throw new RangeError("Index out of range");
+	}
+
+	function writeFloat(buf, value, offset, littleEndian, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) {
+			checkIEEE754(buf, value, offset, 4, 3.4028234663852886e38, -3.4028234663852886e38);
+		}
+		ieee754.write(buf, value, offset, littleEndian, 23, 4);
+		return offset + 4;
+	}
+
+	Buffer.prototype.writeFloatLE = function writeFloatLE(value, offset, noAssert) {
+		return writeFloat(this, value, offset, true, noAssert);
+	};
+
+	Buffer.prototype.writeFloatBE = function writeFloatBE(value, offset, noAssert) {
+		return writeFloat(this, value, offset, false, noAssert);
+	};
+
+	function writeDouble(buf, value, offset, littleEndian, noAssert) {
+		value = +value;
+		offset = offset >>> 0;
+		if (!noAssert) {
+			checkIEEE754(buf, value, offset, 8, 1.7976931348623157e308, -1.7976931348623157e308);
+		}
+		ieee754.write(buf, value, offset, littleEndian, 52, 8);
+		return offset + 8;
+	}
+
+	Buffer.prototype.writeDoubleLE = function writeDoubleLE(value, offset, noAssert) {
+		return writeDouble(this, value, offset, true, noAssert);
+	};
+
+	Buffer.prototype.writeDoubleBE = function writeDoubleBE(value, offset, noAssert) {
+		return writeDouble(this, value, offset, false, noAssert);
+	};
+
+	// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
+	Buffer.prototype.copy = function copy(target, targetStart, start, end) {
+		if (!start) start = 0;
+		if (!end && end !== 0) end = this.length;
+		if (targetStart >= target.length) targetStart = target.length;
+		if (!targetStart) targetStart = 0;
+		if (end > 0 && end < start) end = start;
+
+		// Copy 0 bytes; we're done
+		if (end === start) return 0;
+		if (target.length === 0 || this.length === 0) return 0;
+
+		// Fatal error conditions
+		if (targetStart < 0) {
+			throw new RangeError("targetStart out of bounds");
+		}
+		if (start < 0 || start >= this.length) throw new RangeError("sourceStart out of bounds");
+		if (end < 0) throw new RangeError("sourceEnd out of bounds");
+
+		// Are we oob?
+		if (end > this.length) end = this.length;
+		if (target.length - targetStart < end - start) {
+			end = target.length - targetStart + start;
+		}
+
+		var len = end - start;
+		var i;
+
+		if (this === target && start < targetStart && targetStart < end) {
+			// descending copy from end
+			for (i = len - 1; i >= 0; --i) {
+				target[i + targetStart] = this[i + start];
+			}
+		} else if (len < 1000) {
+			// ascending copy from start
+			for (i = 0; i < len; ++i) {
+				target[i + targetStart] = this[i + start];
+			}
+		} else {
+			Uint8Array.prototype.set.call(target, this.subarray(start, start + len), targetStart);
+		}
+
+		return len;
+	};
+
+	// Usage:
+	//    buffer.fill(number[, offset[, end]])
+	//    buffer.fill(buffer[, offset[, end]])
+	//    buffer.fill(string[, offset[, end]][, encoding])
+	Buffer.prototype.fill = function fill(val, start, end, encoding) {
+		// Handle string cases:
+		if (typeof val === "string") {
+			if (typeof start === "string") {
+				encoding = start;
+				start = 0;
+				end = this.length;
+			} else if (typeof end === "string") {
+				encoding = end;
+				end = this.length;
+			}
+			if (val.length === 1) {
+				var code = val.charCodeAt(0);
+				if (code < 256) {
+					val = code;
+				}
+			}
+			if (encoding !== undefined && typeof encoding !== "string") {
+				throw new TypeError("encoding must be a string");
+			}
+			if (typeof encoding === "string" && !Buffer.isEncoding(encoding)) {
+				throw new TypeError("Unknown encoding: " + encoding);
+			}
+		} else if (typeof val === "number") {
+			val = val & 255;
+		}
+
+		// Invalid ranges are not set to a default, so can range check early.
+		if (start < 0 || this.length < start || this.length < end) {
+			throw new RangeError("Out of range index");
+		}
+
+		if (end <= start) {
+			return this;
+		}
+
+		start = start >>> 0;
+		end = end === undefined ? this.length : end >>> 0;
+
+		if (!val) val = 0;
+
+		var i;
+		if (typeof val === "number") {
+			for (i = start; i < end; ++i) {
+				this[i] = val;
+			}
+		} else {
+			var bytes = Buffer.isBuffer(val) ? val : new Buffer(val, encoding);
+			var len = bytes.length;
+			for (i = 0; i < end - start; ++i) {
+				this[i + start] = bytes[i % len];
+			}
+		}
+
+		return this;
+	};
+
+	// HELPER FUNCTIONS
+	// ================
+
+	var INVALID_BASE64_RE = /[^+/0-9A-Za-z-_]/g;
+
+	function base64clean(str) {
+		// Node strips out invalid characters like \n and \t from the string, base64-js does not
+		str = stringtrim(str).replace(INVALID_BASE64_RE, "");
+		// Node converts strings with length < 2 to ''
+		if (str.length < 2) return "";
+		// Node allows for non-padded base64 strings (missing trailing ===), base64-js does not
+		while (str.length % 4 !== 0) {
+			str = str + "=";
+		}
+		return str;
+	}
+
+	function stringtrim(str) {
+		if (str.trim) return str.trim();
+		return str.replace(/^\s+|\s+$/g, "");
+	}
+
+	function toHex(n) {
+		if (n < 16) return "0" + n.toString(16);
+		return n.toString(16);
+	}
+
+	function utf8ToBytes(string, units) {
+		units = units || Infinity;
+		var codePoint;
+		var length = string.length;
+		var leadSurrogate = null;
+		var bytes = [];
+
+		for (var i = 0; i < length; ++i) {
+			codePoint = string.charCodeAt(i);
+
+			// is surrogate component
+			if (codePoint > 0xd7ff && codePoint < 0xe000) {
+				// last char was a lead
+				if (!leadSurrogate) {
+					// no lead yet
+					if (codePoint > 0xdbff) {
+						// unexpected trail
+						if ((units -= 3) > -1) bytes.push(0xef, 0xbf, 0xbd);
+						continue;
+					} else if (i + 1 === length) {
+						// unpaired lead
+						if ((units -= 3) > -1) bytes.push(0xef, 0xbf, 0xbd);
+						continue;
+					}
+
+					// valid lead
+					leadSurrogate = codePoint;
+
+					continue;
+				}
+
+				// 2 leads in a row
+				if (codePoint < 0xdc00) {
+					if ((units -= 3) > -1) bytes.push(0xef, 0xbf, 0xbd);
+					leadSurrogate = codePoint;
+					continue;
+				}
+
+				// valid surrogate pair
+				codePoint = (((leadSurrogate - 0xd800) << 10) | (codePoint - 0xdc00)) + 0x10000;
+			} else if (leadSurrogate) {
+				// valid bmp char, but last char was a lead
+				if ((units -= 3) > -1) bytes.push(0xef, 0xbf, 0xbd);
+			}
+
+			leadSurrogate = null;
+
+			// encode utf8
+			if (codePoint < 0x80) {
+				if ((units -= 1) < 0) break;
+				bytes.push(codePoint);
+			} else if (codePoint < 0x800) {
+				if ((units -= 2) < 0) break;
+				bytes.push((codePoint >> 0x6) | 0xc0, (codePoint & 0x3f) | 0x80);
+			} else if (codePoint < 0x10000) {
+				if ((units -= 3) < 0) break;
+				bytes.push((codePoint >> 0xc) | 0xe0, ((codePoint >> 0x6) & 0x3f) | 0x80, (codePoint & 0x3f) | 0x80);
+			} else if (codePoint < 0x110000) {
+				if ((units -= 4) < 0) break;
+				bytes.push((codePoint >> 0x12) | 0xf0, ((codePoint >> 0xc) & 0x3f) | 0x80, ((codePoint >> 0x6) & 0x3f) | 0x80, (codePoint & 0x3f) | 0x80);
+			} else {
+				throw new Error("Invalid code point");
+			}
+		}
+
+		return bytes;
+	}
+
+	function asciiToBytes(str) {
+		var byteArray = [];
+		for (var i = 0; i < str.length; ++i) {
+			// Node's code seems to be doing this and not & 0x7F..
+			byteArray.push(str.charCodeAt(i) & 0xff);
+		}
+		return byteArray;
+	}
+
+	function utf16leToBytes(str, units) {
+		var c, hi, lo;
+		var byteArray = [];
+		for (var i = 0; i < str.length; ++i) {
+			if ((units -= 2) < 0) break;
+
+			c = str.charCodeAt(i);
+			hi = c >> 8;
+			lo = c % 256;
+			byteArray.push(lo);
+			byteArray.push(hi);
+		}
+
+		return byteArray;
+	}
+
+	function base64ToBytes(str) {
+		return base64.toByteArray(base64clean(str));
+	}
+
+	function blitBuffer(src, dst, offset, length) {
+		for (var i = 0; i < length; ++i) {
+			if (i + offset >= dst.length || i >= src.length) break;
+			dst[i + offset] = src[i];
+		}
+		return i;
+	}
+
+	function isnan(val) {
+		return val !== val; // eslint-disable-line no-self-compare
+	}
+}
+
+});
+return ___scope___.entry = "index.js";
 });
 FuseBox.pkg("codemirror", {}, function(___scope___){
 ___scope___.file("lib/codemirror.js", function(exports, require, module, __filename, __dirname){
@@ -757,7 +2710,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
   typeof define === 'function' && define.amd ? define(factory) :
-  (global.CodeMirror = factory());
+  (global = global || self, global.CodeMirror = factory());
 }(this, (function () { 'use strict';
 
   // Kludges for bugs and behavior differences that can't be feature
@@ -920,10 +2873,28 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     }
   }
 
-  var Delayed = function() {this.id = null;};
+  var Delayed = function() {
+    this.id = null;
+    this.f = null;
+    this.time = 0;
+    this.handler = bind(this.onTimeout, this);
+  };
+  Delayed.prototype.onTimeout = function (self) {
+    self.id = 0;
+    if (self.time <= +new Date) {
+      self.f();
+    } else {
+      setTimeout(self.handler, self.time - +new Date);
+    }
+  };
   Delayed.prototype.set = function (ms, f) {
-    clearTimeout(this.id);
-    this.id = setTimeout(f, ms);
+    this.f = f;
+    var time = +new Date + ms;
+    if (!this.id || time < this.time) {
+      clearTimeout(this.id);
+      this.id = setTimeout(this.handler, ms);
+      this.time = time;
+    }
   };
 
   function indexOf(array, elt) {
@@ -933,7 +2904,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   }
 
   // Number of pixels added to scroller and sizer to hide scrollbar
-  var scrollerGap = 30;
+  var scrollerGap = 50;
 
   // Returned or thrown by various protocols to signal 'I'm not
   // handling this'.
@@ -1039,108 +3010,582 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     }
   }
 
-  // The display handles the DOM integration, both for input reading
-  // and content drawing. It holds references to DOM nodes and
-  // display-related state.
+  // BIDI HELPERS
 
-  function Display(place, doc, input) {
-    var d = this;
-    this.input = input;
+  function iterateBidiSections(order, from, to, f) {
+    if (!order) { return f(from, to, "ltr", 0) }
+    var found = false;
+    for (var i = 0; i < order.length; ++i) {
+      var part = order[i];
+      if (part.from < to && part.to > from || from == to && part.to == from) {
+        f(Math.max(part.from, from), Math.min(part.to, to), part.level == 1 ? "rtl" : "ltr", i);
+        found = true;
+      }
+    }
+    if (!found) { f(from, to, "ltr"); }
+  }
 
-    // Covers bottom-right square when both scrollbars are present.
-    d.scrollbarFiller = elt("div", null, "CodeMirror-scrollbar-filler");
-    d.scrollbarFiller.setAttribute("cm-not-content", "true");
-    // Covers bottom of gutter when coverGutterNextToScrollbar is on
-    // and h scrollbar is present.
-    d.gutterFiller = elt("div", null, "CodeMirror-gutter-filler");
-    d.gutterFiller.setAttribute("cm-not-content", "true");
-    // Will contain the actual code, positioned to cover the viewport.
-    d.lineDiv = eltP("div", null, "CodeMirror-code");
-    // Elements are added to these to represent selection and cursors.
-    d.selectionDiv = elt("div", null, null, "position: relative; z-index: 1");
-    d.cursorDiv = elt("div", null, "CodeMirror-cursors");
-    // A visibility: hidden element used to find the size of things.
-    d.measure = elt("div", null, "CodeMirror-measure");
-    // When lines outside of the viewport are measured, they are drawn in this.
-    d.lineMeasure = elt("div", null, "CodeMirror-measure");
-    // Wraps everything that needs to exist inside the vertically-padded coordinate system
-    d.lineSpace = eltP("div", [d.measure, d.lineMeasure, d.selectionDiv, d.cursorDiv, d.lineDiv],
-                      null, "position: relative; outline: none");
-    var lines = eltP("div", [d.lineSpace], "CodeMirror-lines");
-    // Moved around its parent to cover visible view.
-    d.mover = elt("div", [lines], null, "position: relative");
-    // Set to the height of the document, allowing scrolling.
-    d.sizer = elt("div", [d.mover], "CodeMirror-sizer");
-    d.sizerWidth = null;
-    // Behavior of elts with overflow: auto and padding is
-    // inconsistent across browsers. This is used to ensure the
-    // scrollable area is big enough.
-    d.heightForcer = elt("div", null, null, "position: absolute; height: " + scrollerGap + "px; width: 1px;");
-    // Will contain the gutters, if any.
-    d.gutters = elt("div", null, "CodeMirror-gutters");
-    d.lineGutter = null;
-    // Actual scrollable element.
-    d.scroller = elt("div", [d.sizer, d.heightForcer, d.gutters], "CodeMirror-scroll");
-    d.scroller.setAttribute("tabIndex", "-1");
-    // The element in which the editor lives.
-    d.wrapper = elt("div", [d.scrollbarFiller, d.gutterFiller, d.scroller], "CodeMirror");
+  var bidiOther = null;
+  function getBidiPartAt(order, ch, sticky) {
+    var found;
+    bidiOther = null;
+    for (var i = 0; i < order.length; ++i) {
+      var cur = order[i];
+      if (cur.from < ch && cur.to > ch) { return i }
+      if (cur.to == ch) {
+        if (cur.from != cur.to && sticky == "before") { found = i; }
+        else { bidiOther = i; }
+      }
+      if (cur.from == ch) {
+        if (cur.from != cur.to && sticky != "before") { found = i; }
+        else { bidiOther = i; }
+      }
+    }
+    return found != null ? found : bidiOther
+  }
 
-    // Work around IE7 z-index bug (not perfect, hence IE7 not really being supported)
-    if (ie && ie_version < 8) { d.gutters.style.zIndex = -1; d.scroller.style.paddingRight = 0; }
-    if (!webkit && !(gecko && mobile)) { d.scroller.draggable = true; }
+  // Bidirectional ordering algorithm
+  // See http://unicode.org/reports/tr9/tr9-13.html for the algorithm
+  // that this (partially) implements.
 
-    if (place) {
-      if (place.appendChild) { place.appendChild(d.wrapper); }
-      else { place(d.wrapper); }
+  // One-char codes used for character types:
+  // L (L):   Left-to-Right
+  // R (R):   Right-to-Left
+  // r (AL):  Right-to-Left Arabic
+  // 1 (EN):  European Number
+  // + (ES):  European Number Separator
+  // % (ET):  European Number Terminator
+  // n (AN):  Arabic Number
+  // , (CS):  Common Number Separator
+  // m (NSM): Non-Spacing Mark
+  // b (BN):  Boundary Neutral
+  // s (B):   Paragraph Separator
+  // t (S):   Segment Separator
+  // w (WS):  Whitespace
+  // N (ON):  Other Neutrals
+
+  // Returns null if characters are ordered as they appear
+  // (left-to-right), or an array of sections ({from, to, level}
+  // objects) in the order in which they occur visually.
+  var bidiOrdering = (function() {
+    // Character types for codepoints 0 to 0xff
+    var lowTypes = "bbbbbbbbbtstwsbbbbbbbbbbbbbbssstwNN%%%NNNNNN,N,N1111111111NNNNNNNLLLLLLLLLLLLLLLLLLLLLLLLLLNNNNNNLLLLLLLLLLLLLLLLLLLLLLLLLLNNNNbbbbbbsbbbbbbbbbbbbbbbbbbbbbbbbbb,N%%%%NNNNLNNNNN%%11NLNNN1LNNNNNLLLLLLLLLLLLLLLLLLLLLLLNLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLN";
+    // Character types for codepoints 0x600 to 0x6f9
+    var arabicTypes = "nnnnnnNNr%%r,rNNmmmmmmmmmmmrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrmmmmmmmmmmmmmmmmmmmmmnnnnnnnnnn%nnrrrmrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrmmmmmmmnNmmmmmmrrmmNmmmmrr1111111111";
+    function charType(code) {
+      if (code <= 0xf7) { return lowTypes.charAt(code) }
+      else if (0x590 <= code && code <= 0x5f4) { return "R" }
+      else if (0x600 <= code && code <= 0x6f9) { return arabicTypes.charAt(code - 0x600) }
+      else if (0x6ee <= code && code <= 0x8ac) { return "r" }
+      else if (0x2000 <= code && code <= 0x200b) { return "w" }
+      else if (code == 0x200c) { return "b" }
+      else { return "L" }
     }
 
-    // Current rendered range (may be bigger than the view window).
-    d.viewFrom = d.viewTo = doc.first;
-    d.reportedViewFrom = d.reportedViewTo = doc.first;
-    // Information about the rendered lines.
-    d.view = [];
-    d.renderedView = null;
-    // Holds info about a single rendered line when it was rendered
-    // for measurement, while not in view.
-    d.externalMeasured = null;
-    // Empty space (in pixels) above the view
-    d.viewOffset = 0;
-    d.lastWrapHeight = d.lastWrapWidth = 0;
-    d.updateLineNumbers = null;
+    var bidiRE = /[\u0590-\u05f4\u0600-\u06ff\u0700-\u08ac]/;
+    var isNeutral = /[stwN]/, isStrong = /[LRr]/, countsAsLeft = /[Lb1n]/, countsAsNum = /[1n]/;
 
-    d.nativeBarWidth = d.barHeight = d.barWidth = 0;
-    d.scrollbarsClipped = false;
+    function BidiSpan(level, from, to) {
+      this.level = level;
+      this.from = from; this.to = to;
+    }
 
-    // Used to only resize the line number gutter when necessary (when
-    // the amount of lines crosses a boundary that makes its width change)
-    d.lineNumWidth = d.lineNumInnerWidth = d.lineNumChars = null;
-    // Set to true when a non-horizontal-scrolling line widget is
-    // added. As an optimization, line widget aligning is skipped when
-    // this is false.
-    d.alignWidgets = false;
+    return function(str, direction) {
+      var outerType = direction == "ltr" ? "L" : "R";
 
-    d.cachedCharWidth = d.cachedTextHeight = d.cachedPaddingH = null;
+      if (str.length == 0 || direction == "ltr" && !bidiRE.test(str)) { return false }
+      var len = str.length, types = [];
+      for (var i = 0; i < len; ++i)
+        { types.push(charType(str.charCodeAt(i))); }
 
-    // Tracks the maximum line length so that the horizontal scrollbar
-    // can be kept static when scrolling.
-    d.maxLine = null;
-    d.maxLineLength = 0;
-    d.maxLineChanged = false;
+      // W1. Examine each non-spacing mark (NSM) in the level run, and
+      // change the type of the NSM to the type of the previous
+      // character. If the NSM is at the start of the level run, it will
+      // get the type of sor.
+      for (var i$1 = 0, prev = outerType; i$1 < len; ++i$1) {
+        var type = types[i$1];
+        if (type == "m") { types[i$1] = prev; }
+        else { prev = type; }
+      }
 
-    // Used for measuring wheel scrolling granularity
-    d.wheelDX = d.wheelDY = d.wheelStartX = d.wheelStartY = null;
+      // W2. Search backwards from each instance of a European number
+      // until the first strong type (R, L, AL, or sor) is found. If an
+      // AL is found, change the type of the European number to Arabic
+      // number.
+      // W3. Change all ALs to R.
+      for (var i$2 = 0, cur = outerType; i$2 < len; ++i$2) {
+        var type$1 = types[i$2];
+        if (type$1 == "1" && cur == "r") { types[i$2] = "n"; }
+        else if (isStrong.test(type$1)) { cur = type$1; if (type$1 == "r") { types[i$2] = "R"; } }
+      }
 
-    // True when shift is held down.
-    d.shift = false;
+      // W4. A single European separator between two European numbers
+      // changes to a European number. A single common separator between
+      // two numbers of the same type changes to that type.
+      for (var i$3 = 1, prev$1 = types[0]; i$3 < len - 1; ++i$3) {
+        var type$2 = types[i$3];
+        if (type$2 == "+" && prev$1 == "1" && types[i$3+1] == "1") { types[i$3] = "1"; }
+        else if (type$2 == "," && prev$1 == types[i$3+1] &&
+                 (prev$1 == "1" || prev$1 == "n")) { types[i$3] = prev$1; }
+        prev$1 = type$2;
+      }
 
-    // Used to track whether anything happened since the context menu
-    // was opened.
-    d.selForContextMenu = null;
+      // W5. A sequence of European terminators adjacent to European
+      // numbers changes to all European numbers.
+      // W6. Otherwise, separators and terminators change to Other
+      // Neutral.
+      for (var i$4 = 0; i$4 < len; ++i$4) {
+        var type$3 = types[i$4];
+        if (type$3 == ",") { types[i$4] = "N"; }
+        else if (type$3 == "%") {
+          var end = (void 0);
+          for (end = i$4 + 1; end < len && types[end] == "%"; ++end) {}
+          var replace = (i$4 && types[i$4-1] == "!") || (end < len && types[end] == "1") ? "1" : "N";
+          for (var j = i$4; j < end; ++j) { types[j] = replace; }
+          i$4 = end - 1;
+        }
+      }
 
-    d.activeTouch = null;
+      // W7. Search backwards from each instance of a European number
+      // until the first strong type (R, L, or sor) is found. If an L is
+      // found, then change the type of the European number to L.
+      for (var i$5 = 0, cur$1 = outerType; i$5 < len; ++i$5) {
+        var type$4 = types[i$5];
+        if (cur$1 == "L" && type$4 == "1") { types[i$5] = "L"; }
+        else if (isStrong.test(type$4)) { cur$1 = type$4; }
+      }
 
-    input.init(d);
+      // N1. A sequence of neutrals takes the direction of the
+      // surrounding strong text if the text on both sides has the same
+      // direction. European and Arabic numbers act as if they were R in
+      // terms of their influence on neutrals. Start-of-level-run (sor)
+      // and end-of-level-run (eor) are used at level run boundaries.
+      // N2. Any remaining neutrals take the embedding direction.
+      for (var i$6 = 0; i$6 < len; ++i$6) {
+        if (isNeutral.test(types[i$6])) {
+          var end$1 = (void 0);
+          for (end$1 = i$6 + 1; end$1 < len && isNeutral.test(types[end$1]); ++end$1) {}
+          var before = (i$6 ? types[i$6-1] : outerType) == "L";
+          var after = (end$1 < len ? types[end$1] : outerType) == "L";
+          var replace$1 = before == after ? (before ? "L" : "R") : outerType;
+          for (var j$1 = i$6; j$1 < end$1; ++j$1) { types[j$1] = replace$1; }
+          i$6 = end$1 - 1;
+        }
+      }
+
+      // Here we depart from the documented algorithm, in order to avoid
+      // building up an actual levels array. Since there are only three
+      // levels (0, 1, 2) in an implementation that doesn't take
+      // explicit embedding into account, we can build up the order on
+      // the fly, without following the level-based algorithm.
+      var order = [], m;
+      for (var i$7 = 0; i$7 < len;) {
+        if (countsAsLeft.test(types[i$7])) {
+          var start = i$7;
+          for (++i$7; i$7 < len && countsAsLeft.test(types[i$7]); ++i$7) {}
+          order.push(new BidiSpan(0, start, i$7));
+        } else {
+          var pos = i$7, at = order.length, isRTL = direction == "rtl" ? 1 : 0;
+          for (++i$7; i$7 < len && types[i$7] != "L"; ++i$7) {}
+          for (var j$2 = pos; j$2 < i$7;) {
+            if (countsAsNum.test(types[j$2])) {
+              if (pos < j$2) { order.splice(at, 0, new BidiSpan(1, pos, j$2)); at += isRTL; }
+              var nstart = j$2;
+              for (++j$2; j$2 < i$7 && countsAsNum.test(types[j$2]); ++j$2) {}
+              order.splice(at, 0, new BidiSpan(2, nstart, j$2));
+              at += isRTL;
+              pos = j$2;
+            } else { ++j$2; }
+          }
+          if (pos < i$7) { order.splice(at, 0, new BidiSpan(1, pos, i$7)); }
+        }
+      }
+      if (direction == "ltr") {
+        if (order[0].level == 1 && (m = str.match(/^\s+/))) {
+          order[0].from = m[0].length;
+          order.unshift(new BidiSpan(0, 0, m[0].length));
+        }
+        if (lst(order).level == 1 && (m = str.match(/\s+$/))) {
+          lst(order).to -= m[0].length;
+          order.push(new BidiSpan(0, len - m[0].length, len));
+        }
+      }
+
+      return direction == "rtl" ? order.reverse() : order
+    }
+  })();
+
+  // Get the bidi ordering for the given line (and cache it). Returns
+  // false for lines that are fully left-to-right, and an array of
+  // BidiSpan objects otherwise.
+  function getOrder(line, direction) {
+    var order = line.order;
+    if (order == null) { order = line.order = bidiOrdering(line.text, direction); }
+    return order
   }
+
+  // EVENT HANDLING
+
+  // Lightweight event framework. on/off also work on DOM nodes,
+  // registering native DOM handlers.
+
+  var noHandlers = [];
+
+  var on = function(emitter, type, f) {
+    if (emitter.addEventListener) {
+      emitter.addEventListener(type, f, false);
+    } else if (emitter.attachEvent) {
+      emitter.attachEvent("on" + type, f);
+    } else {
+      var map = emitter._handlers || (emitter._handlers = {});
+      map[type] = (map[type] || noHandlers).concat(f);
+    }
+  };
+
+  function getHandlers(emitter, type) {
+    return emitter._handlers && emitter._handlers[type] || noHandlers
+  }
+
+  function off(emitter, type, f) {
+    if (emitter.removeEventListener) {
+      emitter.removeEventListener(type, f, false);
+    } else if (emitter.detachEvent) {
+      emitter.detachEvent("on" + type, f);
+    } else {
+      var map = emitter._handlers, arr = map && map[type];
+      if (arr) {
+        var index = indexOf(arr, f);
+        if (index > -1)
+          { map[type] = arr.slice(0, index).concat(arr.slice(index + 1)); }
+      }
+    }
+  }
+
+  function signal(emitter, type /*, values...*/) {
+    var handlers = getHandlers(emitter, type);
+    if (!handlers.length) { return }
+    var args = Array.prototype.slice.call(arguments, 2);
+    for (var i = 0; i < handlers.length; ++i) { handlers[i].apply(null, args); }
+  }
+
+  // The DOM events that CodeMirror handles can be overridden by
+  // registering a (non-DOM) handler on the editor for the event name,
+  // and preventDefault-ing the event in that handler.
+  function signalDOMEvent(cm, e, override) {
+    if (typeof e == "string")
+      { e = {type: e, preventDefault: function() { this.defaultPrevented = true; }}; }
+    signal(cm, override || e.type, cm, e);
+    return e_defaultPrevented(e) || e.codemirrorIgnore
+  }
+
+  function signalCursorActivity(cm) {
+    var arr = cm._handlers && cm._handlers.cursorActivity;
+    if (!arr) { return }
+    var set = cm.curOp.cursorActivityHandlers || (cm.curOp.cursorActivityHandlers = []);
+    for (var i = 0; i < arr.length; ++i) { if (indexOf(set, arr[i]) == -1)
+      { set.push(arr[i]); } }
+  }
+
+  function hasHandler(emitter, type) {
+    return getHandlers(emitter, type).length > 0
+  }
+
+  // Add on and off methods to a constructor's prototype, to make
+  // registering events on such objects more convenient.
+  function eventMixin(ctor) {
+    ctor.prototype.on = function(type, f) {on(this, type, f);};
+    ctor.prototype.off = function(type, f) {off(this, type, f);};
+  }
+
+  // Due to the fact that we still support jurassic IE versions, some
+  // compatibility wrappers are needed.
+
+  function e_preventDefault(e) {
+    if (e.preventDefault) { e.preventDefault(); }
+    else { e.returnValue = false; }
+  }
+  function e_stopPropagation(e) {
+    if (e.stopPropagation) { e.stopPropagation(); }
+    else { e.cancelBubble = true; }
+  }
+  function e_defaultPrevented(e) {
+    return e.defaultPrevented != null ? e.defaultPrevented : e.returnValue == false
+  }
+  function e_stop(e) {e_preventDefault(e); e_stopPropagation(e);}
+
+  function e_target(e) {return e.target || e.srcElement}
+  function e_button(e) {
+    var b = e.which;
+    if (b == null) {
+      if (e.button & 1) { b = 1; }
+      else if (e.button & 2) { b = 3; }
+      else if (e.button & 4) { b = 2; }
+    }
+    if (mac && e.ctrlKey && b == 1) { b = 3; }
+    return b
+  }
+
+  // Detect drag-and-drop
+  var dragAndDrop = function() {
+    // There is *some* kind of drag-and-drop support in IE6-8, but I
+    // couldn't get it to work yet.
+    if (ie && ie_version < 9) { return false }
+    var div = elt('div');
+    return "draggable" in div || "dragDrop" in div
+  }();
+
+  var zwspSupported;
+  function zeroWidthElement(measure) {
+    if (zwspSupported == null) {
+      var test = elt("span", "\u200b");
+      removeChildrenAndAdd(measure, elt("span", [test, document.createTextNode("x")]));
+      if (measure.firstChild.offsetHeight != 0)
+        { zwspSupported = test.offsetWidth <= 1 && test.offsetHeight > 2 && !(ie && ie_version < 8); }
+    }
+    var node = zwspSupported ? elt("span", "\u200b") :
+      elt("span", "\u00a0", null, "display: inline-block; width: 1px; margin-right: -1px");
+    node.setAttribute("cm-text", "");
+    return node
+  }
+
+  // Feature-detect IE's crummy client rect reporting for bidi text
+  var badBidiRects;
+  function hasBadBidiRects(measure) {
+    if (badBidiRects != null) { return badBidiRects }
+    var txt = removeChildrenAndAdd(measure, document.createTextNode("A\u062eA"));
+    var r0 = range(txt, 0, 1).getBoundingClientRect();
+    var r1 = range(txt, 1, 2).getBoundingClientRect();
+    removeChildren(measure);
+    if (!r0 || r0.left == r0.right) { return false } // Safari returns null in some cases (#2780)
+    return badBidiRects = (r1.right - r0.right < 3)
+  }
+
+  // See if "".split is the broken IE version, if so, provide an
+  // alternative way to split lines.
+  var splitLinesAuto = "\n\nb".split(/\n/).length != 3 ? function (string) {
+    var pos = 0, result = [], l = string.length;
+    while (pos <= l) {
+      var nl = string.indexOf("\n", pos);
+      if (nl == -1) { nl = string.length; }
+      var line = string.slice(pos, string.charAt(nl - 1) == "\r" ? nl - 1 : nl);
+      var rt = line.indexOf("\r");
+      if (rt != -1) {
+        result.push(line.slice(0, rt));
+        pos += rt + 1;
+      } else {
+        result.push(line);
+        pos = nl + 1;
+      }
+    }
+    return result
+  } : function (string) { return string.split(/\r\n?|\n/); };
+
+  var hasSelection = window.getSelection ? function (te) {
+    try { return te.selectionStart != te.selectionEnd }
+    catch(e) { return false }
+  } : function (te) {
+    var range;
+    try {range = te.ownerDocument.selection.createRange();}
+    catch(e) {}
+    if (!range || range.parentElement() != te) { return false }
+    return range.compareEndPoints("StartToEnd", range) != 0
+  };
+
+  var hasCopyEvent = (function () {
+    var e = elt("div");
+    if ("oncopy" in e) { return true }
+    e.setAttribute("oncopy", "return;");
+    return typeof e.oncopy == "function"
+  })();
+
+  var badZoomedRects = null;
+  function hasBadZoomedRects(measure) {
+    if (badZoomedRects != null) { return badZoomedRects }
+    var node = removeChildrenAndAdd(measure, elt("span", "x"));
+    var normal = node.getBoundingClientRect();
+    var fromRange = range(node, 0, 1).getBoundingClientRect();
+    return badZoomedRects = Math.abs(normal.left - fromRange.left) > 1
+  }
+
+  // Known modes, by name and by MIME
+  var modes = {}, mimeModes = {};
+
+  // Extra arguments are stored as the mode's dependencies, which is
+  // used by (legacy) mechanisms like loadmode.js to automatically
+  // load a mode. (Preferred mechanism is the require/define calls.)
+  function defineMode(name, mode) {
+    if (arguments.length > 2)
+      { mode.dependencies = Array.prototype.slice.call(arguments, 2); }
+    modes[name] = mode;
+  }
+
+  function defineMIME(mime, spec) {
+    mimeModes[mime] = spec;
+  }
+
+  // Given a MIME type, a {name, ...options} config object, or a name
+  // string, return a mode config object.
+  function resolveMode(spec) {
+    if (typeof spec == "string" && mimeModes.hasOwnProperty(spec)) {
+      spec = mimeModes[spec];
+    } else if (spec && typeof spec.name == "string" && mimeModes.hasOwnProperty(spec.name)) {
+      var found = mimeModes[spec.name];
+      if (typeof found == "string") { found = {name: found}; }
+      spec = createObj(found, spec);
+      spec.name = found.name;
+    } else if (typeof spec == "string" && /^[\w\-]+\/[\w\-]+\+xml$/.test(spec)) {
+      return resolveMode("application/xml")
+    } else if (typeof spec == "string" && /^[\w\-]+\/[\w\-]+\+json$/.test(spec)) {
+      return resolveMode("application/json")
+    }
+    if (typeof spec == "string") { return {name: spec} }
+    else { return spec || {name: "null"} }
+  }
+
+  // Given a mode spec (anything that resolveMode accepts), find and
+  // initialize an actual mode object.
+  function getMode(options, spec) {
+    spec = resolveMode(spec);
+    var mfactory = modes[spec.name];
+    if (!mfactory) { return getMode(options, "text/plain") }
+    var modeObj = mfactory(options, spec);
+    if (modeExtensions.hasOwnProperty(spec.name)) {
+      var exts = modeExtensions[spec.name];
+      for (var prop in exts) {
+        if (!exts.hasOwnProperty(prop)) { continue }
+        if (modeObj.hasOwnProperty(prop)) { modeObj["_" + prop] = modeObj[prop]; }
+        modeObj[prop] = exts[prop];
+      }
+    }
+    modeObj.name = spec.name;
+    if (spec.helperType) { modeObj.helperType = spec.helperType; }
+    if (spec.modeProps) { for (var prop$1 in spec.modeProps)
+      { modeObj[prop$1] = spec.modeProps[prop$1]; } }
+
+    return modeObj
+  }
+
+  // This can be used to attach properties to mode objects from
+  // outside the actual mode definition.
+  var modeExtensions = {};
+  function extendMode(mode, properties) {
+    var exts = modeExtensions.hasOwnProperty(mode) ? modeExtensions[mode] : (modeExtensions[mode] = {});
+    copyObj(properties, exts);
+  }
+
+  function copyState(mode, state) {
+    if (state === true) { return state }
+    if (mode.copyState) { return mode.copyState(state) }
+    var nstate = {};
+    for (var n in state) {
+      var val = state[n];
+      if (val instanceof Array) { val = val.concat([]); }
+      nstate[n] = val;
+    }
+    return nstate
+  }
+
+  // Given a mode and a state (for that mode), find the inner mode and
+  // state at the position that the state refers to.
+  function innerMode(mode, state) {
+    var info;
+    while (mode.innerMode) {
+      info = mode.innerMode(state);
+      if (!info || info.mode == mode) { break }
+      state = info.state;
+      mode = info.mode;
+    }
+    return info || {mode: mode, state: state}
+  }
+
+  function startState(mode, a1, a2) {
+    return mode.startState ? mode.startState(a1, a2) : true
+  }
+
+  // STRING STREAM
+
+  // Fed to the mode parsers, provides helper functions to make
+  // parsers more succinct.
+
+  var StringStream = function(string, tabSize, lineOracle) {
+    this.pos = this.start = 0;
+    this.string = string;
+    this.tabSize = tabSize || 8;
+    this.lastColumnPos = this.lastColumnValue = 0;
+    this.lineStart = 0;
+    this.lineOracle = lineOracle;
+  };
+
+  StringStream.prototype.eol = function () {return this.pos >= this.string.length};
+  StringStream.prototype.sol = function () {return this.pos == this.lineStart};
+  StringStream.prototype.peek = function () {return this.string.charAt(this.pos) || undefined};
+  StringStream.prototype.next = function () {
+    if (this.pos < this.string.length)
+      { return this.string.charAt(this.pos++) }
+  };
+  StringStream.prototype.eat = function (match) {
+    var ch = this.string.charAt(this.pos);
+    var ok;
+    if (typeof match == "string") { ok = ch == match; }
+    else { ok = ch && (match.test ? match.test(ch) : match(ch)); }
+    if (ok) {++this.pos; return ch}
+  };
+  StringStream.prototype.eatWhile = function (match) {
+    var start = this.pos;
+    while (this.eat(match)){}
+    return this.pos > start
+  };
+  StringStream.prototype.eatSpace = function () {
+    var start = this.pos;
+    while (/[\s\u00a0]/.test(this.string.charAt(this.pos))) { ++this.pos; }
+    return this.pos > start
+  };
+  StringStream.prototype.skipToEnd = function () {this.pos = this.string.length;};
+  StringStream.prototype.skipTo = function (ch) {
+    var found = this.string.indexOf(ch, this.pos);
+    if (found > -1) {this.pos = found; return true}
+  };
+  StringStream.prototype.backUp = function (n) {this.pos -= n;};
+  StringStream.prototype.column = function () {
+    if (this.lastColumnPos < this.start) {
+      this.lastColumnValue = countColumn(this.string, this.start, this.tabSize, this.lastColumnPos, this.lastColumnValue);
+      this.lastColumnPos = this.start;
+    }
+    return this.lastColumnValue - (this.lineStart ? countColumn(this.string, this.lineStart, this.tabSize) : 0)
+  };
+  StringStream.prototype.indentation = function () {
+    return countColumn(this.string, null, this.tabSize) -
+      (this.lineStart ? countColumn(this.string, this.lineStart, this.tabSize) : 0)
+  };
+  StringStream.prototype.match = function (pattern, consume, caseInsensitive) {
+    if (typeof pattern == "string") {
+      var cased = function (str) { return caseInsensitive ? str.toLowerCase() : str; };
+      var substr = this.string.substr(this.pos, pattern.length);
+      if (cased(substr) == cased(pattern)) {
+        if (consume !== false) { this.pos += pattern.length; }
+        return true
+      }
+    } else {
+      var match = this.string.slice(this.pos).match(pattern);
+      if (match && match.index > 0) { return null }
+      if (match && consume !== false) { this.pos += match[0].length; }
+      return match
+    }
+  };
+  StringStream.prototype.current = function (){return this.string.slice(this.start, this.pos)};
+  StringStream.prototype.hideFirstChars = function (n, inner) {
+    this.lineStart += n;
+    try { return inner() }
+    finally { this.lineStart -= n; }
+  };
+  StringStream.prototype.lookAhead = function (n) {
+    var oracle = this.lineOracle;
+    return oracle && oracle.lookAhead(n)
+  };
+  StringStream.prototype.baseToken = function () {
+    var oracle = this.lineOracle;
+    return oracle && oracle.baseToken(this.pos)
+  };
 
   // Find the line object corresponding to the given line number.
   function getLine(doc, n) {
@@ -1265,6 +3710,280 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var out = [];
     for (var i = 0; i < array.length; i++) { out[i] = clipPos(doc, array[i]); }
     return out
+  }
+
+  var SavedContext = function(state, lookAhead) {
+    this.state = state;
+    this.lookAhead = lookAhead;
+  };
+
+  var Context = function(doc, state, line, lookAhead) {
+    this.state = state;
+    this.doc = doc;
+    this.line = line;
+    this.maxLookAhead = lookAhead || 0;
+    this.baseTokens = null;
+    this.baseTokenPos = 1;
+  };
+
+  Context.prototype.lookAhead = function (n) {
+    var line = this.doc.getLine(this.line + n);
+    if (line != null && n > this.maxLookAhead) { this.maxLookAhead = n; }
+    return line
+  };
+
+  Context.prototype.baseToken = function (n) {
+    if (!this.baseTokens) { return null }
+    while (this.baseTokens[this.baseTokenPos] <= n)
+      { this.baseTokenPos += 2; }
+    var type = this.baseTokens[this.baseTokenPos + 1];
+    return {type: type && type.replace(/( |^)overlay .*/, ""),
+            size: this.baseTokens[this.baseTokenPos] - n}
+  };
+
+  Context.prototype.nextLine = function () {
+    this.line++;
+    if (this.maxLookAhead > 0) { this.maxLookAhead--; }
+  };
+
+  Context.fromSaved = function (doc, saved, line) {
+    if (saved instanceof SavedContext)
+      { return new Context(doc, copyState(doc.mode, saved.state), line, saved.lookAhead) }
+    else
+      { return new Context(doc, copyState(doc.mode, saved), line) }
+  };
+
+  Context.prototype.save = function (copy) {
+    var state = copy !== false ? copyState(this.doc.mode, this.state) : this.state;
+    return this.maxLookAhead > 0 ? new SavedContext(state, this.maxLookAhead) : state
+  };
+
+
+  // Compute a style array (an array starting with a mode generation
+  // -- for invalidation -- followed by pairs of end positions and
+  // style strings), which is used to highlight the tokens on the
+  // line.
+  function highlightLine(cm, line, context, forceToEnd) {
+    // A styles array always starts with a number identifying the
+    // mode/overlays that it is based on (for easy invalidation).
+    var st = [cm.state.modeGen], lineClasses = {};
+    // Compute the base array of styles
+    runMode(cm, line.text, cm.doc.mode, context, function (end, style) { return st.push(end, style); },
+            lineClasses, forceToEnd);
+    var state = context.state;
+
+    // Run overlays, adjust style array.
+    var loop = function ( o ) {
+      context.baseTokens = st;
+      var overlay = cm.state.overlays[o], i = 1, at = 0;
+      context.state = true;
+      runMode(cm, line.text, overlay.mode, context, function (end, style) {
+        var start = i;
+        // Ensure there's a token end at the current position, and that i points at it
+        while (at < end) {
+          var i_end = st[i];
+          if (i_end > end)
+            { st.splice(i, 1, end, st[i+1], i_end); }
+          i += 2;
+          at = Math.min(end, i_end);
+        }
+        if (!style) { return }
+        if (overlay.opaque) {
+          st.splice(start, i - start, end, "overlay " + style);
+          i = start + 2;
+        } else {
+          for (; start < i; start += 2) {
+            var cur = st[start+1];
+            st[start+1] = (cur ? cur + " " : "") + "overlay " + style;
+          }
+        }
+      }, lineClasses);
+      context.state = state;
+      context.baseTokens = null;
+      context.baseTokenPos = 1;
+    };
+
+    for (var o = 0; o < cm.state.overlays.length; ++o) loop( o );
+
+    return {styles: st, classes: lineClasses.bgClass || lineClasses.textClass ? lineClasses : null}
+  }
+
+  function getLineStyles(cm, line, updateFrontier) {
+    if (!line.styles || line.styles[0] != cm.state.modeGen) {
+      var context = getContextBefore(cm, lineNo(line));
+      var resetState = line.text.length > cm.options.maxHighlightLength && copyState(cm.doc.mode, context.state);
+      var result = highlightLine(cm, line, context);
+      if (resetState) { context.state = resetState; }
+      line.stateAfter = context.save(!resetState);
+      line.styles = result.styles;
+      if (result.classes) { line.styleClasses = result.classes; }
+      else if (line.styleClasses) { line.styleClasses = null; }
+      if (updateFrontier === cm.doc.highlightFrontier)
+        { cm.doc.modeFrontier = Math.max(cm.doc.modeFrontier, ++cm.doc.highlightFrontier); }
+    }
+    return line.styles
+  }
+
+  function getContextBefore(cm, n, precise) {
+    var doc = cm.doc, display = cm.display;
+    if (!doc.mode.startState) { return new Context(doc, true, n) }
+    var start = findStartLine(cm, n, precise);
+    var saved = start > doc.first && getLine(doc, start - 1).stateAfter;
+    var context = saved ? Context.fromSaved(doc, saved, start) : new Context(doc, startState(doc.mode), start);
+
+    doc.iter(start, n, function (line) {
+      processLine(cm, line.text, context);
+      var pos = context.line;
+      line.stateAfter = pos == n - 1 || pos % 5 == 0 || pos >= display.viewFrom && pos < display.viewTo ? context.save() : null;
+      context.nextLine();
+    });
+    if (precise) { doc.modeFrontier = context.line; }
+    return context
+  }
+
+  // Lightweight form of highlight -- proceed over this line and
+  // update state, but don't save a style array. Used for lines that
+  // aren't currently visible.
+  function processLine(cm, text, context, startAt) {
+    var mode = cm.doc.mode;
+    var stream = new StringStream(text, cm.options.tabSize, context);
+    stream.start = stream.pos = startAt || 0;
+    if (text == "") { callBlankLine(mode, context.state); }
+    while (!stream.eol()) {
+      readToken(mode, stream, context.state);
+      stream.start = stream.pos;
+    }
+  }
+
+  function callBlankLine(mode, state) {
+    if (mode.blankLine) { return mode.blankLine(state) }
+    if (!mode.innerMode) { return }
+    var inner = innerMode(mode, state);
+    if (inner.mode.blankLine) { return inner.mode.blankLine(inner.state) }
+  }
+
+  function readToken(mode, stream, state, inner) {
+    for (var i = 0; i < 10; i++) {
+      if (inner) { inner[0] = innerMode(mode, state).mode; }
+      var style = mode.token(stream, state);
+      if (stream.pos > stream.start) { return style }
+    }
+    throw new Error("Mode " + mode.name + " failed to advance stream.")
+  }
+
+  var Token = function(stream, type, state) {
+    this.start = stream.start; this.end = stream.pos;
+    this.string = stream.current();
+    this.type = type || null;
+    this.state = state;
+  };
+
+  // Utility for getTokenAt and getLineTokens
+  function takeToken(cm, pos, precise, asArray) {
+    var doc = cm.doc, mode = doc.mode, style;
+    pos = clipPos(doc, pos);
+    var line = getLine(doc, pos.line), context = getContextBefore(cm, pos.line, precise);
+    var stream = new StringStream(line.text, cm.options.tabSize, context), tokens;
+    if (asArray) { tokens = []; }
+    while ((asArray || stream.pos < pos.ch) && !stream.eol()) {
+      stream.start = stream.pos;
+      style = readToken(mode, stream, context.state);
+      if (asArray) { tokens.push(new Token(stream, style, copyState(doc.mode, context.state))); }
+    }
+    return asArray ? tokens : new Token(stream, style, context.state)
+  }
+
+  function extractLineClasses(type, output) {
+    if (type) { for (;;) {
+      var lineClass = type.match(/(?:^|\s+)line-(background-)?(\S+)/);
+      if (!lineClass) { break }
+      type = type.slice(0, lineClass.index) + type.slice(lineClass.index + lineClass[0].length);
+      var prop = lineClass[1] ? "bgClass" : "textClass";
+      if (output[prop] == null)
+        { output[prop] = lineClass[2]; }
+      else if (!(new RegExp("(?:^|\\s)" + lineClass[2] + "(?:$|\\s)")).test(output[prop]))
+        { output[prop] += " " + lineClass[2]; }
+    } }
+    return type
+  }
+
+  // Run the given mode's parser over a line, calling f for each token.
+  function runMode(cm, text, mode, context, f, lineClasses, forceToEnd) {
+    var flattenSpans = mode.flattenSpans;
+    if (flattenSpans == null) { flattenSpans = cm.options.flattenSpans; }
+    var curStart = 0, curStyle = null;
+    var stream = new StringStream(text, cm.options.tabSize, context), style;
+    var inner = cm.options.addModeClass && [null];
+    if (text == "") { extractLineClasses(callBlankLine(mode, context.state), lineClasses); }
+    while (!stream.eol()) {
+      if (stream.pos > cm.options.maxHighlightLength) {
+        flattenSpans = false;
+        if (forceToEnd) { processLine(cm, text, context, stream.pos); }
+        stream.pos = text.length;
+        style = null;
+      } else {
+        style = extractLineClasses(readToken(mode, stream, context.state, inner), lineClasses);
+      }
+      if (inner) {
+        var mName = inner[0].name;
+        if (mName) { style = "m-" + (style ? mName + " " + style : mName); }
+      }
+      if (!flattenSpans || curStyle != style) {
+        while (curStart < stream.start) {
+          curStart = Math.min(stream.start, curStart + 5000);
+          f(curStart, curStyle);
+        }
+        curStyle = style;
+      }
+      stream.start = stream.pos;
+    }
+    while (curStart < stream.pos) {
+      // Webkit seems to refuse to render text nodes longer than 57444
+      // characters, and returns inaccurate measurements in nodes
+      // starting around 5000 chars.
+      var pos = Math.min(stream.pos, curStart + 5000);
+      f(pos, curStyle);
+      curStart = pos;
+    }
+  }
+
+  // Finds the line to start with when starting a parse. Tries to
+  // find a line with a stateAfter, so that it can start with a
+  // valid state. If that fails, it returns the line with the
+  // smallest indentation, which tends to need the least context to
+  // parse correctly.
+  function findStartLine(cm, n, precise) {
+    var minindent, minline, doc = cm.doc;
+    var lim = precise ? -1 : n - (cm.doc.mode.innerMode ? 1000 : 100);
+    for (var search = n; search > lim; --search) {
+      if (search <= doc.first) { return doc.first }
+      var line = getLine(doc, search - 1), after = line.stateAfter;
+      if (after && (!precise || search + (after instanceof SavedContext ? after.lookAhead : 0) <= doc.modeFrontier))
+        { return search }
+      var indented = countColumn(line.text, null, cm.options.tabSize);
+      if (minline == null || minindent > indented) {
+        minline = search - 1;
+        minindent = indented;
+      }
+    }
+    return minline
+  }
+
+  function retreatFrontier(doc, n) {
+    doc.modeFrontier = Math.min(doc.modeFrontier, n);
+    if (doc.highlightFrontier < n - 10) { return }
+    var start = doc.first;
+    for (var line = n - 1; line > start; line--) {
+      var saved = getLine(doc, line).stateAfter;
+      // change is on 3
+      // state on line 1 looked ahead 2 -- so saw 3
+      // test 1 + 2 < 3 should cover this
+      if (saved && (!(saved instanceof SavedContext) || line + saved.lookAhead < n)) {
+        start = line + 1;
+        break
+      }
+    }
+    doc.highlightFrontier = Math.min(doc.highlightFrontier, start);
   }
 
   // Optimize some code when these features are not used.
@@ -1505,8 +4224,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   // Test whether there exists a collapsed span that partially
   // overlaps (covers the start or end, but not both) of a new span.
   // Such overlap is not allowed.
-  function conflictingCollapsedRange(doc, lineNo$$1, from, to, marker) {
-    var line = getLine(doc, lineNo$$1);
+  function conflictingCollapsedRange(doc, lineNo, from, to, marker) {
+    var line = getLine(doc, lineNo);
     var sps = sawCollapsedSpans && line.markedSpans;
     if (sps) { for (var i = 0; i < sps.length; ++i) {
       var sp = sps[i];
@@ -1653,860 +4372,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         d.maxLine = line;
       }
     });
-  }
-
-  // BIDI HELPERS
-
-  function iterateBidiSections(order, from, to, f) {
-    if (!order) { return f(from, to, "ltr", 0) }
-    var found = false;
-    for (var i = 0; i < order.length; ++i) {
-      var part = order[i];
-      if (part.from < to && part.to > from || from == to && part.to == from) {
-        f(Math.max(part.from, from), Math.min(part.to, to), part.level == 1 ? "rtl" : "ltr", i);
-        found = true;
-      }
-    }
-    if (!found) { f(from, to, "ltr"); }
-  }
-
-  var bidiOther = null;
-  function getBidiPartAt(order, ch, sticky) {
-    var found;
-    bidiOther = null;
-    for (var i = 0; i < order.length; ++i) {
-      var cur = order[i];
-      if (cur.from < ch && cur.to > ch) { return i }
-      if (cur.to == ch) {
-        if (cur.from != cur.to && sticky == "before") { found = i; }
-        else { bidiOther = i; }
-      }
-      if (cur.from == ch) {
-        if (cur.from != cur.to && sticky != "before") { found = i; }
-        else { bidiOther = i; }
-      }
-    }
-    return found != null ? found : bidiOther
-  }
-
-  // Bidirectional ordering algorithm
-  // See http://unicode.org/reports/tr9/tr9-13.html for the algorithm
-  // that this (partially) implements.
-
-  // One-char codes used for character types:
-  // L (L):   Left-to-Right
-  // R (R):   Right-to-Left
-  // r (AL):  Right-to-Left Arabic
-  // 1 (EN):  European Number
-  // + (ES):  European Number Separator
-  // % (ET):  European Number Terminator
-  // n (AN):  Arabic Number
-  // , (CS):  Common Number Separator
-  // m (NSM): Non-Spacing Mark
-  // b (BN):  Boundary Neutral
-  // s (B):   Paragraph Separator
-  // t (S):   Segment Separator
-  // w (WS):  Whitespace
-  // N (ON):  Other Neutrals
-
-  // Returns null if characters are ordered as they appear
-  // (left-to-right), or an array of sections ({from, to, level}
-  // objects) in the order in which they occur visually.
-  var bidiOrdering = (function() {
-    // Character types for codepoints 0 to 0xff
-    var lowTypes = "bbbbbbbbbtstwsbbbbbbbbbbbbbbssstwNN%%%NNNNNN,N,N1111111111NNNNNNNLLLLLLLLLLLLLLLLLLLLLLLLLLNNNNNNLLLLLLLLLLLLLLLLLLLLLLLLLLNNNNbbbbbbsbbbbbbbbbbbbbbbbbbbbbbbbbb,N%%%%NNNNLNNNNN%%11NLNNN1LNNNNNLLLLLLLLLLLLLLLLLLLLLLLNLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLN";
-    // Character types for codepoints 0x600 to 0x6f9
-    var arabicTypes = "nnnnnnNNr%%r,rNNmmmmmmmmmmmrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrmmmmmmmmmmmmmmmmmmmmmnnnnnnnnnn%nnrrrmrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrmmmmmmmnNmmmmmmrrmmNmmmmrr1111111111";
-    function charType(code) {
-      if (code <= 0xf7) { return lowTypes.charAt(code) }
-      else if (0x590 <= code && code <= 0x5f4) { return "R" }
-      else if (0x600 <= code && code <= 0x6f9) { return arabicTypes.charAt(code - 0x600) }
-      else if (0x6ee <= code && code <= 0x8ac) { return "r" }
-      else if (0x2000 <= code && code <= 0x200b) { return "w" }
-      else if (code == 0x200c) { return "b" }
-      else { return "L" }
-    }
-
-    var bidiRE = /[\u0590-\u05f4\u0600-\u06ff\u0700-\u08ac]/;
-    var isNeutral = /[stwN]/, isStrong = /[LRr]/, countsAsLeft = /[Lb1n]/, countsAsNum = /[1n]/;
-
-    function BidiSpan(level, from, to) {
-      this.level = level;
-      this.from = from; this.to = to;
-    }
-
-    return function(str, direction) {
-      var outerType = direction == "ltr" ? "L" : "R";
-
-      if (str.length == 0 || direction == "ltr" && !bidiRE.test(str)) { return false }
-      var len = str.length, types = [];
-      for (var i = 0; i < len; ++i)
-        { types.push(charType(str.charCodeAt(i))); }
-
-      // W1. Examine each non-spacing mark (NSM) in the level run, and
-      // change the type of the NSM to the type of the previous
-      // character. If the NSM is at the start of the level run, it will
-      // get the type of sor.
-      for (var i$1 = 0, prev = outerType; i$1 < len; ++i$1) {
-        var type = types[i$1];
-        if (type == "m") { types[i$1] = prev; }
-        else { prev = type; }
-      }
-
-      // W2. Search backwards from each instance of a European number
-      // until the first strong type (R, L, AL, or sor) is found. If an
-      // AL is found, change the type of the European number to Arabic
-      // number.
-      // W3. Change all ALs to R.
-      for (var i$2 = 0, cur = outerType; i$2 < len; ++i$2) {
-        var type$1 = types[i$2];
-        if (type$1 == "1" && cur == "r") { types[i$2] = "n"; }
-        else if (isStrong.test(type$1)) { cur = type$1; if (type$1 == "r") { types[i$2] = "R"; } }
-      }
-
-      // W4. A single European separator between two European numbers
-      // changes to a European number. A single common separator between
-      // two numbers of the same type changes to that type.
-      for (var i$3 = 1, prev$1 = types[0]; i$3 < len - 1; ++i$3) {
-        var type$2 = types[i$3];
-        if (type$2 == "+" && prev$1 == "1" && types[i$3+1] == "1") { types[i$3] = "1"; }
-        else if (type$2 == "," && prev$1 == types[i$3+1] &&
-                 (prev$1 == "1" || prev$1 == "n")) { types[i$3] = prev$1; }
-        prev$1 = type$2;
-      }
-
-      // W5. A sequence of European terminators adjacent to European
-      // numbers changes to all European numbers.
-      // W6. Otherwise, separators and terminators change to Other
-      // Neutral.
-      for (var i$4 = 0; i$4 < len; ++i$4) {
-        var type$3 = types[i$4];
-        if (type$3 == ",") { types[i$4] = "N"; }
-        else if (type$3 == "%") {
-          var end = (void 0);
-          for (end = i$4 + 1; end < len && types[end] == "%"; ++end) {}
-          var replace = (i$4 && types[i$4-1] == "!") || (end < len && types[end] == "1") ? "1" : "N";
-          for (var j = i$4; j < end; ++j) { types[j] = replace; }
-          i$4 = end - 1;
-        }
-      }
-
-      // W7. Search backwards from each instance of a European number
-      // until the first strong type (R, L, or sor) is found. If an L is
-      // found, then change the type of the European number to L.
-      for (var i$5 = 0, cur$1 = outerType; i$5 < len; ++i$5) {
-        var type$4 = types[i$5];
-        if (cur$1 == "L" && type$4 == "1") { types[i$5] = "L"; }
-        else if (isStrong.test(type$4)) { cur$1 = type$4; }
-      }
-
-      // N1. A sequence of neutrals takes the direction of the
-      // surrounding strong text if the text on both sides has the same
-      // direction. European and Arabic numbers act as if they were R in
-      // terms of their influence on neutrals. Start-of-level-run (sor)
-      // and end-of-level-run (eor) are used at level run boundaries.
-      // N2. Any remaining neutrals take the embedding direction.
-      for (var i$6 = 0; i$6 < len; ++i$6) {
-        if (isNeutral.test(types[i$6])) {
-          var end$1 = (void 0);
-          for (end$1 = i$6 + 1; end$1 < len && isNeutral.test(types[end$1]); ++end$1) {}
-          var before = (i$6 ? types[i$6-1] : outerType) == "L";
-          var after = (end$1 < len ? types[end$1] : outerType) == "L";
-          var replace$1 = before == after ? (before ? "L" : "R") : outerType;
-          for (var j$1 = i$6; j$1 < end$1; ++j$1) { types[j$1] = replace$1; }
-          i$6 = end$1 - 1;
-        }
-      }
-
-      // Here we depart from the documented algorithm, in order to avoid
-      // building up an actual levels array. Since there are only three
-      // levels (0, 1, 2) in an implementation that doesn't take
-      // explicit embedding into account, we can build up the order on
-      // the fly, without following the level-based algorithm.
-      var order = [], m;
-      for (var i$7 = 0; i$7 < len;) {
-        if (countsAsLeft.test(types[i$7])) {
-          var start = i$7;
-          for (++i$7; i$7 < len && countsAsLeft.test(types[i$7]); ++i$7) {}
-          order.push(new BidiSpan(0, start, i$7));
-        } else {
-          var pos = i$7, at = order.length;
-          for (++i$7; i$7 < len && types[i$7] != "L"; ++i$7) {}
-          for (var j$2 = pos; j$2 < i$7;) {
-            if (countsAsNum.test(types[j$2])) {
-              if (pos < j$2) { order.splice(at, 0, new BidiSpan(1, pos, j$2)); }
-              var nstart = j$2;
-              for (++j$2; j$2 < i$7 && countsAsNum.test(types[j$2]); ++j$2) {}
-              order.splice(at, 0, new BidiSpan(2, nstart, j$2));
-              pos = j$2;
-            } else { ++j$2; }
-          }
-          if (pos < i$7) { order.splice(at, 0, new BidiSpan(1, pos, i$7)); }
-        }
-      }
-      if (direction == "ltr") {
-        if (order[0].level == 1 && (m = str.match(/^\s+/))) {
-          order[0].from = m[0].length;
-          order.unshift(new BidiSpan(0, 0, m[0].length));
-        }
-        if (lst(order).level == 1 && (m = str.match(/\s+$/))) {
-          lst(order).to -= m[0].length;
-          order.push(new BidiSpan(0, len - m[0].length, len));
-        }
-      }
-
-      return direction == "rtl" ? order.reverse() : order
-    }
-  })();
-
-  // Get the bidi ordering for the given line (and cache it). Returns
-  // false for lines that are fully left-to-right, and an array of
-  // BidiSpan objects otherwise.
-  function getOrder(line, direction) {
-    var order = line.order;
-    if (order == null) { order = line.order = bidiOrdering(line.text, direction); }
-    return order
-  }
-
-  // EVENT HANDLING
-
-  // Lightweight event framework. on/off also work on DOM nodes,
-  // registering native DOM handlers.
-
-  var noHandlers = [];
-
-  var on = function(emitter, type, f) {
-    if (emitter.addEventListener) {
-      emitter.addEventListener(type, f, false);
-    } else if (emitter.attachEvent) {
-      emitter.attachEvent("on" + type, f);
-    } else {
-      var map$$1 = emitter._handlers || (emitter._handlers = {});
-      map$$1[type] = (map$$1[type] || noHandlers).concat(f);
-    }
-  };
-
-  function getHandlers(emitter, type) {
-    return emitter._handlers && emitter._handlers[type] || noHandlers
-  }
-
-  function off(emitter, type, f) {
-    if (emitter.removeEventListener) {
-      emitter.removeEventListener(type, f, false);
-    } else if (emitter.detachEvent) {
-      emitter.detachEvent("on" + type, f);
-    } else {
-      var map$$1 = emitter._handlers, arr = map$$1 && map$$1[type];
-      if (arr) {
-        var index = indexOf(arr, f);
-        if (index > -1)
-          { map$$1[type] = arr.slice(0, index).concat(arr.slice(index + 1)); }
-      }
-    }
-  }
-
-  function signal(emitter, type /*, values...*/) {
-    var handlers = getHandlers(emitter, type);
-    if (!handlers.length) { return }
-    var args = Array.prototype.slice.call(arguments, 2);
-    for (var i = 0; i < handlers.length; ++i) { handlers[i].apply(null, args); }
-  }
-
-  // The DOM events that CodeMirror handles can be overridden by
-  // registering a (non-DOM) handler on the editor for the event name,
-  // and preventDefault-ing the event in that handler.
-  function signalDOMEvent(cm, e, override) {
-    if (typeof e == "string")
-      { e = {type: e, preventDefault: function() { this.defaultPrevented = true; }}; }
-    signal(cm, override || e.type, cm, e);
-    return e_defaultPrevented(e) || e.codemirrorIgnore
-  }
-
-  function signalCursorActivity(cm) {
-    var arr = cm._handlers && cm._handlers.cursorActivity;
-    if (!arr) { return }
-    var set = cm.curOp.cursorActivityHandlers || (cm.curOp.cursorActivityHandlers = []);
-    for (var i = 0; i < arr.length; ++i) { if (indexOf(set, arr[i]) == -1)
-      { set.push(arr[i]); } }
-  }
-
-  function hasHandler(emitter, type) {
-    return getHandlers(emitter, type).length > 0
-  }
-
-  // Add on and off methods to a constructor's prototype, to make
-  // registering events on such objects more convenient.
-  function eventMixin(ctor) {
-    ctor.prototype.on = function(type, f) {on(this, type, f);};
-    ctor.prototype.off = function(type, f) {off(this, type, f);};
-  }
-
-  // Due to the fact that we still support jurassic IE versions, some
-  // compatibility wrappers are needed.
-
-  function e_preventDefault(e) {
-    if (e.preventDefault) { e.preventDefault(); }
-    else { e.returnValue = false; }
-  }
-  function e_stopPropagation(e) {
-    if (e.stopPropagation) { e.stopPropagation(); }
-    else { e.cancelBubble = true; }
-  }
-  function e_defaultPrevented(e) {
-    return e.defaultPrevented != null ? e.defaultPrevented : e.returnValue == false
-  }
-  function e_stop(e) {e_preventDefault(e); e_stopPropagation(e);}
-
-  function e_target(e) {return e.target || e.srcElement}
-  function e_button(e) {
-    var b = e.which;
-    if (b == null) {
-      if (e.button & 1) { b = 1; }
-      else if (e.button & 2) { b = 3; }
-      else if (e.button & 4) { b = 2; }
-    }
-    if (mac && e.ctrlKey && b == 1) { b = 3; }
-    return b
-  }
-
-  // Detect drag-and-drop
-  var dragAndDrop = function() {
-    // There is *some* kind of drag-and-drop support in IE6-8, but I
-    // couldn't get it to work yet.
-    if (ie && ie_version < 9) { return false }
-    var div = elt('div');
-    return "draggable" in div || "dragDrop" in div
-  }();
-
-  var zwspSupported;
-  function zeroWidthElement(measure) {
-    if (zwspSupported == null) {
-      var test = elt("span", "\u200b");
-      removeChildrenAndAdd(measure, elt("span", [test, document.createTextNode("x")]));
-      if (measure.firstChild.offsetHeight != 0)
-        { zwspSupported = test.offsetWidth <= 1 && test.offsetHeight > 2 && !(ie && ie_version < 8); }
-    }
-    var node = zwspSupported ? elt("span", "\u200b") :
-      elt("span", "\u00a0", null, "display: inline-block; width: 1px; margin-right: -1px");
-    node.setAttribute("cm-text", "");
-    return node
-  }
-
-  // Feature-detect IE's crummy client rect reporting for bidi text
-  var badBidiRects;
-  function hasBadBidiRects(measure) {
-    if (badBidiRects != null) { return badBidiRects }
-    var txt = removeChildrenAndAdd(measure, document.createTextNode("A\u062eA"));
-    var r0 = range(txt, 0, 1).getBoundingClientRect();
-    var r1 = range(txt, 1, 2).getBoundingClientRect();
-    removeChildren(measure);
-    if (!r0 || r0.left == r0.right) { return false } // Safari returns null in some cases (#2780)
-    return badBidiRects = (r1.right - r0.right < 3)
-  }
-
-  // See if "".split is the broken IE version, if so, provide an
-  // alternative way to split lines.
-  var splitLinesAuto = "\n\nb".split(/\n/).length != 3 ? function (string) {
-    var pos = 0, result = [], l = string.length;
-    while (pos <= l) {
-      var nl = string.indexOf("\n", pos);
-      if (nl == -1) { nl = string.length; }
-      var line = string.slice(pos, string.charAt(nl - 1) == "\r" ? nl - 1 : nl);
-      var rt = line.indexOf("\r");
-      if (rt != -1) {
-        result.push(line.slice(0, rt));
-        pos += rt + 1;
-      } else {
-        result.push(line);
-        pos = nl + 1;
-      }
-    }
-    return result
-  } : function (string) { return string.split(/\r\n?|\n/); };
-
-  var hasSelection = window.getSelection ? function (te) {
-    try { return te.selectionStart != te.selectionEnd }
-    catch(e) { return false }
-  } : function (te) {
-    var range$$1;
-    try {range$$1 = te.ownerDocument.selection.createRange();}
-    catch(e) {}
-    if (!range$$1 || range$$1.parentElement() != te) { return false }
-    return range$$1.compareEndPoints("StartToEnd", range$$1) != 0
-  };
-
-  var hasCopyEvent = (function () {
-    var e = elt("div");
-    if ("oncopy" in e) { return true }
-    e.setAttribute("oncopy", "return;");
-    return typeof e.oncopy == "function"
-  })();
-
-  var badZoomedRects = null;
-  function hasBadZoomedRects(measure) {
-    if (badZoomedRects != null) { return badZoomedRects }
-    var node = removeChildrenAndAdd(measure, elt("span", "x"));
-    var normal = node.getBoundingClientRect();
-    var fromRange = range(node, 0, 1).getBoundingClientRect();
-    return badZoomedRects = Math.abs(normal.left - fromRange.left) > 1
-  }
-
-  // Known modes, by name and by MIME
-  var modes = {}, mimeModes = {};
-
-  // Extra arguments are stored as the mode's dependencies, which is
-  // used by (legacy) mechanisms like loadmode.js to automatically
-  // load a mode. (Preferred mechanism is the require/define calls.)
-  function defineMode(name, mode) {
-    if (arguments.length > 2)
-      { mode.dependencies = Array.prototype.slice.call(arguments, 2); }
-    modes[name] = mode;
-  }
-
-  function defineMIME(mime, spec) {
-    mimeModes[mime] = spec;
-  }
-
-  // Given a MIME type, a {name, ...options} config object, or a name
-  // string, return a mode config object.
-  function resolveMode(spec) {
-    if (typeof spec == "string" && mimeModes.hasOwnProperty(spec)) {
-      spec = mimeModes[spec];
-    } else if (spec && typeof spec.name == "string" && mimeModes.hasOwnProperty(spec.name)) {
-      var found = mimeModes[spec.name];
-      if (typeof found == "string") { found = {name: found}; }
-      spec = createObj(found, spec);
-      spec.name = found.name;
-    } else if (typeof spec == "string" && /^[\w\-]+\/[\w\-]+\+xml$/.test(spec)) {
-      return resolveMode("application/xml")
-    } else if (typeof spec == "string" && /^[\w\-]+\/[\w\-]+\+json$/.test(spec)) {
-      return resolveMode("application/json")
-    }
-    if (typeof spec == "string") { return {name: spec} }
-    else { return spec || {name: "null"} }
-  }
-
-  // Given a mode spec (anything that resolveMode accepts), find and
-  // initialize an actual mode object.
-  function getMode(options, spec) {
-    spec = resolveMode(spec);
-    var mfactory = modes[spec.name];
-    if (!mfactory) { return getMode(options, "text/plain") }
-    var modeObj = mfactory(options, spec);
-    if (modeExtensions.hasOwnProperty(spec.name)) {
-      var exts = modeExtensions[spec.name];
-      for (var prop in exts) {
-        if (!exts.hasOwnProperty(prop)) { continue }
-        if (modeObj.hasOwnProperty(prop)) { modeObj["_" + prop] = modeObj[prop]; }
-        modeObj[prop] = exts[prop];
-      }
-    }
-    modeObj.name = spec.name;
-    if (spec.helperType) { modeObj.helperType = spec.helperType; }
-    if (spec.modeProps) { for (var prop$1 in spec.modeProps)
-      { modeObj[prop$1] = spec.modeProps[prop$1]; } }
-
-    return modeObj
-  }
-
-  // This can be used to attach properties to mode objects from
-  // outside the actual mode definition.
-  var modeExtensions = {};
-  function extendMode(mode, properties) {
-    var exts = modeExtensions.hasOwnProperty(mode) ? modeExtensions[mode] : (modeExtensions[mode] = {});
-    copyObj(properties, exts);
-  }
-
-  function copyState(mode, state) {
-    if (state === true) { return state }
-    if (mode.copyState) { return mode.copyState(state) }
-    var nstate = {};
-    for (var n in state) {
-      var val = state[n];
-      if (val instanceof Array) { val = val.concat([]); }
-      nstate[n] = val;
-    }
-    return nstate
-  }
-
-  // Given a mode and a state (for that mode), find the inner mode and
-  // state at the position that the state refers to.
-  function innerMode(mode, state) {
-    var info;
-    while (mode.innerMode) {
-      info = mode.innerMode(state);
-      if (!info || info.mode == mode) { break }
-      state = info.state;
-      mode = info.mode;
-    }
-    return info || {mode: mode, state: state}
-  }
-
-  function startState(mode, a1, a2) {
-    return mode.startState ? mode.startState(a1, a2) : true
-  }
-
-  // STRING STREAM
-
-  // Fed to the mode parsers, provides helper functions to make
-  // parsers more succinct.
-
-  var StringStream = function(string, tabSize, lineOracle) {
-    this.pos = this.start = 0;
-    this.string = string;
-    this.tabSize = tabSize || 8;
-    this.lastColumnPos = this.lastColumnValue = 0;
-    this.lineStart = 0;
-    this.lineOracle = lineOracle;
-  };
-
-  StringStream.prototype.eol = function () {return this.pos >= this.string.length};
-  StringStream.prototype.sol = function () {return this.pos == this.lineStart};
-  StringStream.prototype.peek = function () {return this.string.charAt(this.pos) || undefined};
-  StringStream.prototype.next = function () {
-    if (this.pos < this.string.length)
-      { return this.string.charAt(this.pos++) }
-  };
-  StringStream.prototype.eat = function (match) {
-    var ch = this.string.charAt(this.pos);
-    var ok;
-    if (typeof match == "string") { ok = ch == match; }
-    else { ok = ch && (match.test ? match.test(ch) : match(ch)); }
-    if (ok) {++this.pos; return ch}
-  };
-  StringStream.prototype.eatWhile = function (match) {
-    var start = this.pos;
-    while (this.eat(match)){}
-    return this.pos > start
-  };
-  StringStream.prototype.eatSpace = function () {
-      var this$1 = this;
-
-    var start = this.pos;
-    while (/[\s\u00a0]/.test(this.string.charAt(this.pos))) { ++this$1.pos; }
-    return this.pos > start
-  };
-  StringStream.prototype.skipToEnd = function () {this.pos = this.string.length;};
-  StringStream.prototype.skipTo = function (ch) {
-    var found = this.string.indexOf(ch, this.pos);
-    if (found > -1) {this.pos = found; return true}
-  };
-  StringStream.prototype.backUp = function (n) {this.pos -= n;};
-  StringStream.prototype.column = function () {
-    if (this.lastColumnPos < this.start) {
-      this.lastColumnValue = countColumn(this.string, this.start, this.tabSize, this.lastColumnPos, this.lastColumnValue);
-      this.lastColumnPos = this.start;
-    }
-    return this.lastColumnValue - (this.lineStart ? countColumn(this.string, this.lineStart, this.tabSize) : 0)
-  };
-  StringStream.prototype.indentation = function () {
-    return countColumn(this.string, null, this.tabSize) -
-      (this.lineStart ? countColumn(this.string, this.lineStart, this.tabSize) : 0)
-  };
-  StringStream.prototype.match = function (pattern, consume, caseInsensitive) {
-    if (typeof pattern == "string") {
-      var cased = function (str) { return caseInsensitive ? str.toLowerCase() : str; };
-      var substr = this.string.substr(this.pos, pattern.length);
-      if (cased(substr) == cased(pattern)) {
-        if (consume !== false) { this.pos += pattern.length; }
-        return true
-      }
-    } else {
-      var match = this.string.slice(this.pos).match(pattern);
-      if (match && match.index > 0) { return null }
-      if (match && consume !== false) { this.pos += match[0].length; }
-      return match
-    }
-  };
-  StringStream.prototype.current = function (){return this.string.slice(this.start, this.pos)};
-  StringStream.prototype.hideFirstChars = function (n, inner) {
-    this.lineStart += n;
-    try { return inner() }
-    finally { this.lineStart -= n; }
-  };
-  StringStream.prototype.lookAhead = function (n) {
-    var oracle = this.lineOracle;
-    return oracle && oracle.lookAhead(n)
-  };
-  StringStream.prototype.baseToken = function () {
-    var oracle = this.lineOracle;
-    return oracle && oracle.baseToken(this.pos)
-  };
-
-  var SavedContext = function(state, lookAhead) {
-    this.state = state;
-    this.lookAhead = lookAhead;
-  };
-
-  var Context = function(doc, state, line, lookAhead) {
-    this.state = state;
-    this.doc = doc;
-    this.line = line;
-    this.maxLookAhead = lookAhead || 0;
-    this.baseTokens = null;
-    this.baseTokenPos = 1;
-  };
-
-  Context.prototype.lookAhead = function (n) {
-    var line = this.doc.getLine(this.line + n);
-    if (line != null && n > this.maxLookAhead) { this.maxLookAhead = n; }
-    return line
-  };
-
-  Context.prototype.baseToken = function (n) {
-      var this$1 = this;
-
-    if (!this.baseTokens) { return null }
-    while (this.baseTokens[this.baseTokenPos] <= n)
-      { this$1.baseTokenPos += 2; }
-    var type = this.baseTokens[this.baseTokenPos + 1];
-    return {type: type && type.replace(/( |^)overlay .*/, ""),
-            size: this.baseTokens[this.baseTokenPos] - n}
-  };
-
-  Context.prototype.nextLine = function () {
-    this.line++;
-    if (this.maxLookAhead > 0) { this.maxLookAhead--; }
-  };
-
-  Context.fromSaved = function (doc, saved, line) {
-    if (saved instanceof SavedContext)
-      { return new Context(doc, copyState(doc.mode, saved.state), line, saved.lookAhead) }
-    else
-      { return new Context(doc, copyState(doc.mode, saved), line) }
-  };
-
-  Context.prototype.save = function (copy) {
-    var state = copy !== false ? copyState(this.doc.mode, this.state) : this.state;
-    return this.maxLookAhead > 0 ? new SavedContext(state, this.maxLookAhead) : state
-  };
-
-
-  // Compute a style array (an array starting with a mode generation
-  // -- for invalidation -- followed by pairs of end positions and
-  // style strings), which is used to highlight the tokens on the
-  // line.
-  function highlightLine(cm, line, context, forceToEnd) {
-    // A styles array always starts with a number identifying the
-    // mode/overlays that it is based on (for easy invalidation).
-    var st = [cm.state.modeGen], lineClasses = {};
-    // Compute the base array of styles
-    runMode(cm, line.text, cm.doc.mode, context, function (end, style) { return st.push(end, style); },
-            lineClasses, forceToEnd);
-    var state = context.state;
-
-    // Run overlays, adjust style array.
-    var loop = function ( o ) {
-      context.baseTokens = st;
-      var overlay = cm.state.overlays[o], i = 1, at = 0;
-      context.state = true;
-      runMode(cm, line.text, overlay.mode, context, function (end, style) {
-        var start = i;
-        // Ensure there's a token end at the current position, and that i points at it
-        while (at < end) {
-          var i_end = st[i];
-          if (i_end > end)
-            { st.splice(i, 1, end, st[i+1], i_end); }
-          i += 2;
-          at = Math.min(end, i_end);
-        }
-        if (!style) { return }
-        if (overlay.opaque) {
-          st.splice(start, i - start, end, "overlay " + style);
-          i = start + 2;
-        } else {
-          for (; start < i; start += 2) {
-            var cur = st[start+1];
-            st[start+1] = (cur ? cur + " " : "") + "overlay " + style;
-          }
-        }
-      }, lineClasses);
-      context.state = state;
-      context.baseTokens = null;
-      context.baseTokenPos = 1;
-    };
-
-    for (var o = 0; o < cm.state.overlays.length; ++o) loop( o );
-
-    return {styles: st, classes: lineClasses.bgClass || lineClasses.textClass ? lineClasses : null}
-  }
-
-  function getLineStyles(cm, line, updateFrontier) {
-    if (!line.styles || line.styles[0] != cm.state.modeGen) {
-      var context = getContextBefore(cm, lineNo(line));
-      var resetState = line.text.length > cm.options.maxHighlightLength && copyState(cm.doc.mode, context.state);
-      var result = highlightLine(cm, line, context);
-      if (resetState) { context.state = resetState; }
-      line.stateAfter = context.save(!resetState);
-      line.styles = result.styles;
-      if (result.classes) { line.styleClasses = result.classes; }
-      else if (line.styleClasses) { line.styleClasses = null; }
-      if (updateFrontier === cm.doc.highlightFrontier)
-        { cm.doc.modeFrontier = Math.max(cm.doc.modeFrontier, ++cm.doc.highlightFrontier); }
-    }
-    return line.styles
-  }
-
-  function getContextBefore(cm, n, precise) {
-    var doc = cm.doc, display = cm.display;
-    if (!doc.mode.startState) { return new Context(doc, true, n) }
-    var start = findStartLine(cm, n, precise);
-    var saved = start > doc.first && getLine(doc, start - 1).stateAfter;
-    var context = saved ? Context.fromSaved(doc, saved, start) : new Context(doc, startState(doc.mode), start);
-
-    doc.iter(start, n, function (line) {
-      processLine(cm, line.text, context);
-      var pos = context.line;
-      line.stateAfter = pos == n - 1 || pos % 5 == 0 || pos >= display.viewFrom && pos < display.viewTo ? context.save() : null;
-      context.nextLine();
-    });
-    if (precise) { doc.modeFrontier = context.line; }
-    return context
-  }
-
-  // Lightweight form of highlight -- proceed over this line and
-  // update state, but don't save a style array. Used for lines that
-  // aren't currently visible.
-  function processLine(cm, text, context, startAt) {
-    var mode = cm.doc.mode;
-    var stream = new StringStream(text, cm.options.tabSize, context);
-    stream.start = stream.pos = startAt || 0;
-    if (text == "") { callBlankLine(mode, context.state); }
-    while (!stream.eol()) {
-      readToken(mode, stream, context.state);
-      stream.start = stream.pos;
-    }
-  }
-
-  function callBlankLine(mode, state) {
-    if (mode.blankLine) { return mode.blankLine(state) }
-    if (!mode.innerMode) { return }
-    var inner = innerMode(mode, state);
-    if (inner.mode.blankLine) { return inner.mode.blankLine(inner.state) }
-  }
-
-  function readToken(mode, stream, state, inner) {
-    for (var i = 0; i < 10; i++) {
-      if (inner) { inner[0] = innerMode(mode, state).mode; }
-      var style = mode.token(stream, state);
-      if (stream.pos > stream.start) { return style }
-    }
-    throw new Error("Mode " + mode.name + " failed to advance stream.")
-  }
-
-  var Token = function(stream, type, state) {
-    this.start = stream.start; this.end = stream.pos;
-    this.string = stream.current();
-    this.type = type || null;
-    this.state = state;
-  };
-
-  // Utility for getTokenAt and getLineTokens
-  function takeToken(cm, pos, precise, asArray) {
-    var doc = cm.doc, mode = doc.mode, style;
-    pos = clipPos(doc, pos);
-    var line = getLine(doc, pos.line), context = getContextBefore(cm, pos.line, precise);
-    var stream = new StringStream(line.text, cm.options.tabSize, context), tokens;
-    if (asArray) { tokens = []; }
-    while ((asArray || stream.pos < pos.ch) && !stream.eol()) {
-      stream.start = stream.pos;
-      style = readToken(mode, stream, context.state);
-      if (asArray) { tokens.push(new Token(stream, style, copyState(doc.mode, context.state))); }
-    }
-    return asArray ? tokens : new Token(stream, style, context.state)
-  }
-
-  function extractLineClasses(type, output) {
-    if (type) { for (;;) {
-      var lineClass = type.match(/(?:^|\s+)line-(background-)?(\S+)/);
-      if (!lineClass) { break }
-      type = type.slice(0, lineClass.index) + type.slice(lineClass.index + lineClass[0].length);
-      var prop = lineClass[1] ? "bgClass" : "textClass";
-      if (output[prop] == null)
-        { output[prop] = lineClass[2]; }
-      else if (!(new RegExp("(?:^|\s)" + lineClass[2] + "(?:$|\s)")).test(output[prop]))
-        { output[prop] += " " + lineClass[2]; }
-    } }
-    return type
-  }
-
-  // Run the given mode's parser over a line, calling f for each token.
-  function runMode(cm, text, mode, context, f, lineClasses, forceToEnd) {
-    var flattenSpans = mode.flattenSpans;
-    if (flattenSpans == null) { flattenSpans = cm.options.flattenSpans; }
-    var curStart = 0, curStyle = null;
-    var stream = new StringStream(text, cm.options.tabSize, context), style;
-    var inner = cm.options.addModeClass && [null];
-    if (text == "") { extractLineClasses(callBlankLine(mode, context.state), lineClasses); }
-    while (!stream.eol()) {
-      if (stream.pos > cm.options.maxHighlightLength) {
-        flattenSpans = false;
-        if (forceToEnd) { processLine(cm, text, context, stream.pos); }
-        stream.pos = text.length;
-        style = null;
-      } else {
-        style = extractLineClasses(readToken(mode, stream, context.state, inner), lineClasses);
-      }
-      if (inner) {
-        var mName = inner[0].name;
-        if (mName) { style = "m-" + (style ? mName + " " + style : mName); }
-      }
-      if (!flattenSpans || curStyle != style) {
-        while (curStart < stream.start) {
-          curStart = Math.min(stream.start, curStart + 5000);
-          f(curStart, curStyle);
-        }
-        curStyle = style;
-      }
-      stream.start = stream.pos;
-    }
-    while (curStart < stream.pos) {
-      // Webkit seems to refuse to render text nodes longer than 57444
-      // characters, and returns inaccurate measurements in nodes
-      // starting around 5000 chars.
-      var pos = Math.min(stream.pos, curStart + 5000);
-      f(pos, curStyle);
-      curStart = pos;
-    }
-  }
-
-  // Finds the line to start with when starting a parse. Tries to
-  // find a line with a stateAfter, so that it can start with a
-  // valid state. If that fails, it returns the line with the
-  // smallest indentation, which tends to need the least context to
-  // parse correctly.
-  function findStartLine(cm, n, precise) {
-    var minindent, minline, doc = cm.doc;
-    var lim = precise ? -1 : n - (cm.doc.mode.innerMode ? 1000 : 100);
-    for (var search = n; search > lim; --search) {
-      if (search <= doc.first) { return doc.first }
-      var line = getLine(doc, search - 1), after = line.stateAfter;
-      if (after && (!precise || search + (after instanceof SavedContext ? after.lookAhead : 0) <= doc.modeFrontier))
-        { return search }
-      var indented = countColumn(line.text, null, cm.options.tabSize);
-      if (minline == null || minindent > indented) {
-        minline = search - 1;
-        minindent = indented;
-      }
-    }
-    return minline
-  }
-
-  function retreatFrontier(doc, n) {
-    doc.modeFrontier = Math.min(doc.modeFrontier, n);
-    if (doc.highlightFrontier < n - 10) { return }
-    var start = doc.first;
-    for (var line = n - 1; line > start; line--) {
-      var saved = getLine(doc, line).stateAfter;
-      // change is on 3
-      // state on line 1 looked ahead 2 -- so saw 3
-      // test 1 + 2 < 3 should cover this
-      if (saved && (!(saved instanceof SavedContext) || line + saved.lookAhead < n)) {
-        start = line + 1;
-        break
-      }
-    }
-    doc.highlightFrontier = Math.min(doc.highlightFrontier, start);
   }
 
   // LINE DATA STRUCTURE
@@ -2676,7 +4541,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       }
     }
     builder.trailingSpace = displayText.charCodeAt(text.length - 1) == 32;
-    if (style || startStyle || endStyle || mustWrap || css) {
+    if (style || startStyle || endStyle || mustWrap || css || attributes) {
       var fullStyle = style || "";
       if (startStyle) { fullStyle += startStyle; }
       if (endStyle) { fullStyle += endStyle; }
@@ -3030,8 +4895,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
           elt("div", lineNumberFor(cm.options, lineN),
               "CodeMirror-linenumber CodeMirror-gutter-elt",
               ("left: " + (dims.gutterLeft["CodeMirror-linenumbers"]) + "px; width: " + (cm.display.lineNumInnerWidth) + "px"))); }
-      if (markers) { for (var k = 0; k < cm.options.gutters.length; ++k) {
-        var id = cm.options.gutters[k], found = markers.hasOwnProperty(id) && markers[id];
+      if (markers) { for (var k = 0; k < cm.display.gutterSpecs.length; ++k) {
+        var id = cm.display.gutterSpecs[k].className, found = markers.hasOwnProperty(id) && markers[id];
         if (found)
           { gutterWrap.appendChild(elt("div", [found], "CodeMirror-gutter-elt",
                                      ("left: " + (dims.gutterLeft[id]) + "px; width: " + (dims.gutterWidth[id]) + "px"))); }
@@ -3041,10 +4906,10 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   function updateLineWidgets(cm, lineView, dims) {
     if (lineView.alignable) { lineView.alignable = null; }
+    var isWidget = classTest("CodeMirror-linewidget");
     for (var node = lineView.node.firstChild, next = (void 0); node; node = next) {
       next = node.nextSibling;
-      if (node.className == "CodeMirror-linewidget")
-        { lineView.node.removeChild(node); }
+      if (isWidget.test(node.className)) { lineView.node.removeChild(node); }
     }
     insertLineWidgets(cm, lineView, dims);
   }
@@ -3074,7 +4939,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     if (!line.widgets) { return }
     var wrap = ensureLineWrapped(lineView);
     for (var i = 0, ws = line.widgets; i < ws.length; ++i) {
-      var widget = ws[i], node = elt("div", [widget.node], "CodeMirror-linewidget");
+      var widget = ws[i], node = elt("div", [widget.node], "CodeMirror-linewidget" + (widget.className ? " " + widget.className : ""));
       if (!widget.handleMouseEvents) { node.setAttribute("cm-ignore-events", "true"); }
       positionLineWidget(widget, node, lineView, dims);
       cm.display.input.setUneditable(node);
@@ -3134,7 +4999,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   function paddingVert(display) {return display.mover.offsetHeight - display.lineSpace.offsetHeight}
   function paddingH(display) {
     if (display.cachedPaddingH) { return display.cachedPaddingH }
-    var e = removeChildrenAndAdd(display.measure, elt("pre", "x"));
+    var e = removeChildrenAndAdd(display.measure, elt("pre", "x", "CodeMirror-line-like"));
     var style = window.getComputedStyle ? window.getComputedStyle(e) : e.currentStyle;
     var data = {left: parseInt(style.paddingLeft), right: parseInt(style.paddingRight)};
     if (!isNaN(data.left) && !isNaN(data.right)) { display.cachedPaddingH = data; }
@@ -3262,36 +5127,36 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   var nullRect = {left: 0, right: 0, top: 0, bottom: 0};
 
-  function nodeAndOffsetInLineMap(map$$1, ch, bias) {
+  function nodeAndOffsetInLineMap(map, ch, bias) {
     var node, start, end, collapse, mStart, mEnd;
     // First, search the line map for the text node corresponding to,
     // or closest to, the target character.
-    for (var i = 0; i < map$$1.length; i += 3) {
-      mStart = map$$1[i];
-      mEnd = map$$1[i + 1];
+    for (var i = 0; i < map.length; i += 3) {
+      mStart = map[i];
+      mEnd = map[i + 1];
       if (ch < mStart) {
         start = 0; end = 1;
         collapse = "left";
       } else if (ch < mEnd) {
         start = ch - mStart;
         end = start + 1;
-      } else if (i == map$$1.length - 3 || ch == mEnd && map$$1[i + 3] > ch) {
+      } else if (i == map.length - 3 || ch == mEnd && map[i + 3] > ch) {
         end = mEnd - mStart;
         start = end - 1;
         if (ch >= mEnd) { collapse = "right"; }
       }
       if (start != null) {
-        node = map$$1[i + 2];
+        node = map[i + 2];
         if (mStart == mEnd && bias == (node.insertLeft ? "left" : "right"))
           { collapse = bias; }
         if (bias == "left" && start == 0)
-          { while (i && map$$1[i - 2] == map$$1[i - 3] && map$$1[i - 1].insertLeft) {
-            node = map$$1[(i -= 3) + 2];
+          { while (i && map[i - 2] == map[i - 3] && map[i - 1].insertLeft) {
+            node = map[(i -= 3) + 2];
             collapse = "left";
           } }
         if (bias == "right" && start == mEnd - mStart)
-          { while (i < map$$1.length - 3 && map$$1[i + 3] == map$$1[i + 4] && !map$$1[i + 5].insertLeft) {
-            node = map$$1[(i += 3) + 2];
+          { while (i < map.length - 3 && map[i + 3] == map[i + 4] && !map[i + 5].insertLeft) {
+            node = map[(i += 3) + 2];
             collapse = "right";
           } }
         break
@@ -3528,7 +5393,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   function PosWithInfo(line, ch, sticky, outside, xRel) {
     var pos = Pos(line, ch, sticky);
     pos.xRel = xRel;
-    if (outside) { pos.outside = true; }
+    if (outside) { pos.outside = outside; }
     return pos
   }
 
@@ -3537,16 +5402,16 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   function coordsChar(cm, x, y) {
     var doc = cm.doc;
     y += cm.display.viewOffset;
-    if (y < 0) { return PosWithInfo(doc.first, 0, null, true, -1) }
+    if (y < 0) { return PosWithInfo(doc.first, 0, null, -1, -1) }
     var lineN = lineAtHeight(doc, y), last = doc.first + doc.size - 1;
     if (lineN > last)
-      { return PosWithInfo(doc.first + doc.size - 1, getLine(doc, last).text.length, null, true, 1) }
+      { return PosWithInfo(doc.first + doc.size - 1, getLine(doc, last).text.length, null, 1, 1) }
     if (x < 0) { x = 0; }
 
     var lineObj = getLine(doc, lineN);
     for (;;) {
       var found = coordsCharInner(cm, lineObj, lineN, x, y);
-      var collapsed = collapsedSpanAround(lineObj, found.ch + (found.xRel > 0 ? 1 : 0));
+      var collapsed = collapsedSpanAround(lineObj, found.ch + (found.xRel > 0 || found.outside > 0 ? 1 : 0));
       if (!collapsed) { return found }
       var rangeEnd = collapsed.find(1);
       if (rangeEnd.line == lineN) { return rangeEnd }
@@ -3574,13 +5439,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     return box.bottom <= y ? false : box.top > y ? true : (left ? box.left : box.right) > x
   }
 
-  function coordsCharInner(cm, lineObj, lineNo$$1, x, y) {
+  function coordsCharInner(cm, lineObj, lineNo, x, y) {
     // Move y into line-local coordinate space
     y -= heightAtLine(lineObj);
     var preparedMeasure = prepareMeasureForLine(cm, lineObj);
     // When directly calling `measureCharPrepared`, we have to adjust
     // for the widgets at this line.
-    var widgetHeight$$1 = widgetTopHeight(lineObj);
+    var widgetHeight = widgetTopHeight(lineObj);
     var begin = 0, end = lineObj.text.length, ltr = true;
 
     var order = getOrder(lineObj, cm.doc.direction);
@@ -3588,7 +5453,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     // which bidi section the coordinates fall into.
     if (order) {
       var part = (cm.options.lineWrapping ? coordsBidiPartWrapped : coordsBidiPart)
-                   (cm, lineObj, lineNo$$1, preparedMeasure, order, x, y);
+                   (cm, lineObj, lineNo, preparedMeasure, order, x, y);
       ltr = part.level != 1;
       // The awkward -1 offsets are needed because findFirst (called
       // on these below) will treat its first bound as inclusive,
@@ -3604,7 +5469,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var chAround = null, boxAround = null;
     var ch = findFirst(function (ch) {
       var box = measureCharPrepared(cm, preparedMeasure, ch);
-      box.top += widgetHeight$$1; box.bottom += widgetHeight$$1;
+      box.top += widgetHeight; box.bottom += widgetHeight;
       if (!boxIsAfter(box, x, y, false)) { return false }
       if (box.top <= y && box.left <= x) {
         chAround = ch;
@@ -3628,27 +5493,27 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       // left of the character and compare it's vertical position to the
       // coordinates
       sticky = ch == 0 ? "after" : ch == lineObj.text.length ? "before" :
-        (measureCharPrepared(cm, preparedMeasure, ch - (ltr ? 1 : 0)).bottom + widgetHeight$$1 <= y) == ltr ?
+        (measureCharPrepared(cm, preparedMeasure, ch - (ltr ? 1 : 0)).bottom + widgetHeight <= y) == ltr ?
         "after" : "before";
       // Now get accurate coordinates for this place, in order to get a
       // base X position
-      var coords = cursorCoords(cm, Pos(lineNo$$1, ch, sticky), "line", lineObj, preparedMeasure);
+      var coords = cursorCoords(cm, Pos(lineNo, ch, sticky), "line", lineObj, preparedMeasure);
       baseX = coords.left;
-      outside = y < coords.top || y >= coords.bottom;
+      outside = y < coords.top ? -1 : y >= coords.bottom ? 1 : 0;
     }
 
     ch = skipExtendingChars(lineObj.text, ch, 1);
-    return PosWithInfo(lineNo$$1, ch, sticky, outside, x - baseX)
+    return PosWithInfo(lineNo, ch, sticky, outside, x - baseX)
   }
 
-  function coordsBidiPart(cm, lineObj, lineNo$$1, preparedMeasure, order, x, y) {
+  function coordsBidiPart(cm, lineObj, lineNo, preparedMeasure, order, x, y) {
     // Bidi parts are sorted left-to-right, and in a non-line-wrapping
     // situation, we can take this ordering to correspond to the visual
     // ordering. This finds the first part whose end is after the given
     // coordinates.
     var index = findFirst(function (i) {
       var part = order[i], ltr = part.level != 1;
-      return boxIsAfter(cursorCoords(cm, Pos(lineNo$$1, ltr ? part.to : part.from, ltr ? "before" : "after"),
+      return boxIsAfter(cursorCoords(cm, Pos(lineNo, ltr ? part.to : part.from, ltr ? "before" : "after"),
                                      "line", lineObj, preparedMeasure), x, y, true)
     }, 0, order.length - 1);
     var part = order[index];
@@ -3657,7 +5522,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     // that start, move one part back.
     if (index > 0) {
       var ltr = part.level != 1;
-      var start = cursorCoords(cm, Pos(lineNo$$1, ltr ? part.from : part.to, ltr ? "after" : "before"),
+      var start = cursorCoords(cm, Pos(lineNo, ltr ? part.from : part.to, ltr ? "after" : "before"),
                                "line", lineObj, preparedMeasure);
       if (boxIsAfter(start, x, y, true) && start.top > y)
         { part = order[index - 1]; }
@@ -3703,7 +5568,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   function textHeight(display) {
     if (display.cachedTextHeight != null) { return display.cachedTextHeight }
     if (measureText == null) {
-      measureText = elt("pre");
+      measureText = elt("pre", null, "CodeMirror-line-like");
       // Measure a bunch of lines, for browsers that compute
       // fractional heights.
       for (var i = 0; i < 49; ++i) {
@@ -3723,7 +5588,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   function charWidth(display) {
     if (display.cachedCharWidth != null) { return display.cachedCharWidth }
     var anchor = elt("span", "xxxxxxxxxx");
-    var pre = elt("pre", [anchor]);
+    var pre = elt("pre", [anchor], "CodeMirror-line-like");
     removeChildrenAndAdd(display.measure, pre);
     var rect = anchor.getBoundingClientRect(), width = (rect.right - rect.left) / 10;
     if (width > 2) { display.cachedCharWidth = width; }
@@ -3736,8 +5601,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var d = cm.display, left = {}, width = {};
     var gutterLeft = d.gutters.clientLeft;
     for (var n = d.gutters.firstChild, i = 0; n; n = n.nextSibling, ++i) {
-      left[cm.options.gutters[i]] = n.offsetLeft + n.clientLeft + gutterLeft;
-      width[cm.options.gutters[i]] = n.clientWidth;
+      var id = cm.display.gutterSpecs[i].className;
+      left[id] = n.offsetLeft + n.clientLeft + gutterLeft;
+      width[id] = n.clientWidth;
     }
     return {fixedPos: compensateForHScroll(d),
             gutterTotalWidth: d.gutters.offsetWidth,
@@ -3794,9 +5660,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var x, y, space = display.lineSpace.getBoundingClientRect();
     // Fails unpredictably on IE[67] when mouse is dragged around quickly.
     try { x = e.clientX - space.left; y = e.clientY - space.top; }
-    catch (e) { return null }
+    catch (e$1) { return null }
     var coords = coordsChar(cm, x, y), line;
-    if (forRect && coords.xRel == 1 && (line = getLine(cm.doc, coords.line).text).length == coords.ch) {
+    if (forRect && coords.xRel > 0 && (line = getLine(cm.doc, coords.line).text).length == coords.ch) {
       var colDiff = countColumn(line, line.length, cm.options.tabSize) - line.length;
       coords = Pos(coords.line, Math.max(0, Math.round((x - paddingH(cm.display).left) / charWidth(cm.display)) - colDiff));
     }
@@ -3816,6 +5682,154 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     }
   }
 
+  // Updates the display.view data structure for a given change to the
+  // document. From and to are in pre-change coordinates. Lendiff is
+  // the amount of lines added or subtracted by the change. This is
+  // used for changes that span multiple lines, or change the way
+  // lines are divided into visual lines. regLineChange (below)
+  // registers single-line changes.
+  function regChange(cm, from, to, lendiff) {
+    if (from == null) { from = cm.doc.first; }
+    if (to == null) { to = cm.doc.first + cm.doc.size; }
+    if (!lendiff) { lendiff = 0; }
+
+    var display = cm.display;
+    if (lendiff && to < display.viewTo &&
+        (display.updateLineNumbers == null || display.updateLineNumbers > from))
+      { display.updateLineNumbers = from; }
+
+    cm.curOp.viewChanged = true;
+
+    if (from >= display.viewTo) { // Change after
+      if (sawCollapsedSpans && visualLineNo(cm.doc, from) < display.viewTo)
+        { resetView(cm); }
+    } else if (to <= display.viewFrom) { // Change before
+      if (sawCollapsedSpans && visualLineEndNo(cm.doc, to + lendiff) > display.viewFrom) {
+        resetView(cm);
+      } else {
+        display.viewFrom += lendiff;
+        display.viewTo += lendiff;
+      }
+    } else if (from <= display.viewFrom && to >= display.viewTo) { // Full overlap
+      resetView(cm);
+    } else if (from <= display.viewFrom) { // Top overlap
+      var cut = viewCuttingPoint(cm, to, to + lendiff, 1);
+      if (cut) {
+        display.view = display.view.slice(cut.index);
+        display.viewFrom = cut.lineN;
+        display.viewTo += lendiff;
+      } else {
+        resetView(cm);
+      }
+    } else if (to >= display.viewTo) { // Bottom overlap
+      var cut$1 = viewCuttingPoint(cm, from, from, -1);
+      if (cut$1) {
+        display.view = display.view.slice(0, cut$1.index);
+        display.viewTo = cut$1.lineN;
+      } else {
+        resetView(cm);
+      }
+    } else { // Gap in the middle
+      var cutTop = viewCuttingPoint(cm, from, from, -1);
+      var cutBot = viewCuttingPoint(cm, to, to + lendiff, 1);
+      if (cutTop && cutBot) {
+        display.view = display.view.slice(0, cutTop.index)
+          .concat(buildViewArray(cm, cutTop.lineN, cutBot.lineN))
+          .concat(display.view.slice(cutBot.index));
+        display.viewTo += lendiff;
+      } else {
+        resetView(cm);
+      }
+    }
+
+    var ext = display.externalMeasured;
+    if (ext) {
+      if (to < ext.lineN)
+        { ext.lineN += lendiff; }
+      else if (from < ext.lineN + ext.size)
+        { display.externalMeasured = null; }
+    }
+  }
+
+  // Register a change to a single line. Type must be one of "text",
+  // "gutter", "class", "widget"
+  function regLineChange(cm, line, type) {
+    cm.curOp.viewChanged = true;
+    var display = cm.display, ext = cm.display.externalMeasured;
+    if (ext && line >= ext.lineN && line < ext.lineN + ext.size)
+      { display.externalMeasured = null; }
+
+    if (line < display.viewFrom || line >= display.viewTo) { return }
+    var lineView = display.view[findViewIndex(cm, line)];
+    if (lineView.node == null) { return }
+    var arr = lineView.changes || (lineView.changes = []);
+    if (indexOf(arr, type) == -1) { arr.push(type); }
+  }
+
+  // Clear the view.
+  function resetView(cm) {
+    cm.display.viewFrom = cm.display.viewTo = cm.doc.first;
+    cm.display.view = [];
+    cm.display.viewOffset = 0;
+  }
+
+  function viewCuttingPoint(cm, oldN, newN, dir) {
+    var index = findViewIndex(cm, oldN), diff, view = cm.display.view;
+    if (!sawCollapsedSpans || newN == cm.doc.first + cm.doc.size)
+      { return {index: index, lineN: newN} }
+    var n = cm.display.viewFrom;
+    for (var i = 0; i < index; i++)
+      { n += view[i].size; }
+    if (n != oldN) {
+      if (dir > 0) {
+        if (index == view.length - 1) { return null }
+        diff = (n + view[index].size) - oldN;
+        index++;
+      } else {
+        diff = n - oldN;
+      }
+      oldN += diff; newN += diff;
+    }
+    while (visualLineNo(cm.doc, newN) != newN) {
+      if (index == (dir < 0 ? 0 : view.length - 1)) { return null }
+      newN += dir * view[index - (dir < 0 ? 1 : 0)].size;
+      index += dir;
+    }
+    return {index: index, lineN: newN}
+  }
+
+  // Force the view to cover a given range, adding empty view element
+  // or clipping off existing ones as needed.
+  function adjustView(cm, from, to) {
+    var display = cm.display, view = display.view;
+    if (view.length == 0 || from >= display.viewTo || to <= display.viewFrom) {
+      display.view = buildViewArray(cm, from, to);
+      display.viewFrom = from;
+    } else {
+      if (display.viewFrom > from)
+        { display.view = buildViewArray(cm, from, display.viewFrom).concat(display.view); }
+      else if (display.viewFrom < from)
+        { display.view = display.view.slice(findViewIndex(cm, from)); }
+      display.viewFrom = from;
+      if (display.viewTo < to)
+        { display.view = display.view.concat(buildViewArray(cm, display.viewTo, to)); }
+      else if (display.viewTo > to)
+        { display.view = display.view.slice(0, findViewIndex(cm, to)); }
+    }
+    display.viewTo = to;
+  }
+
+  // Count the number of lines in the view whose DOM representation is
+  // out of date (or nonexistent).
+  function countDirtyView(cm) {
+    var view = cm.display.view, dirty = 0;
+    for (var i = 0; i < view.length; i++) {
+      var lineView = view[i];
+      if (!lineView.hidden && (!lineView.node || lineView.changes)) { ++dirty; }
+    }
+    return dirty
+  }
+
   function updateSelection(cm) {
     cm.display.input.showSelection(cm.display.input.prepareSelection());
   }
@@ -3829,13 +5843,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
     for (var i = 0; i < doc.sel.ranges.length; i++) {
       if (!primary && i == doc.sel.primIndex) { continue }
-      var range$$1 = doc.sel.ranges[i];
-      if (range$$1.from().line >= cm.display.viewTo || range$$1.to().line < cm.display.viewFrom) { continue }
-      var collapsed = range$$1.empty();
+      var range = doc.sel.ranges[i];
+      if (range.from().line >= cm.display.viewTo || range.to().line < cm.display.viewFrom) { continue }
+      var collapsed = range.empty();
       if (collapsed || cm.options.showCursorWhenSelecting)
-        { drawSelectionCursor(cm, range$$1.head, curFragment); }
+        { drawSelectionCursor(cm, range.head, curFragment); }
       if (!collapsed)
-        { drawSelectionRange(cm, range$$1, selFragment); }
+        { drawSelectionRange(cm, range, selFragment); }
     }
     return result
   }
@@ -3862,7 +5876,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   function cmpCoords(a, b) { return a.top - b.top || a.left - b.left }
 
   // Draws the given range as a highlighted selection
-  function drawSelectionRange(cm, range$$1, output) {
+  function drawSelectionRange(cm, range, output) {
     var display = cm.display, doc = cm.doc;
     var fragment = document.createDocumentFragment();
     var padding = paddingH(cm.display), leftSide = padding.left;
@@ -3931,7 +5945,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       return {start: start, end: end}
     }
 
-    var sFrom = range$$1.from(), sTo = range$$1.to();
+    var sFrom = range.from(), sTo = range.to();
     if (sFrom.line == sTo.line) {
       drawForLine(sFrom.line, sFrom.ch, sTo.ch);
     } else {
@@ -3962,8 +5976,10 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var on = true;
     display.cursorDiv.style.visibility = "";
     if (cm.options.cursorBlinkRate > 0)
-      { display.blinker = setInterval(function () { return display.cursorDiv.style.visibility = (on = !on) ? "" : "hidden"; },
-        cm.options.cursorBlinkRate); }
+      { display.blinker = setInterval(function () {
+        if (!cm.hasFocus()) { onBlur(cm); }
+        display.cursorDiv.style.visibility = (on = !on) ? "" : "hidden";
+      }, cm.options.cursorBlinkRate); }
     else if (cm.options.cursorBlinkRate < 0)
       { display.cursorDiv.style.visibility = "hidden"; }
   }
@@ -4033,7 +6049,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
           { width = cur.text.firstChild.getBoundingClientRect().right - box.left - 1; }
       }
       var diff = cur.line.height - height;
-      if (height < 2) { height = textHeight(display); }
       if (diff > .005 || diff < -.005) {
         updateLineHeight(cur.line, height);
         updateWidgetHeight(cur.line);
@@ -4082,49 +6097,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       }
     }
     return {from: from, to: Math.max(to, from + 1)}
-  }
-
-  // Re-align line numbers and gutter marks to compensate for
-  // horizontal scrolling.
-  function alignHorizontally(cm) {
-    var display = cm.display, view = display.view;
-    if (!display.alignWidgets && (!display.gutters.firstChild || !cm.options.fixedGutter)) { return }
-    var comp = compensateForHScroll(display) - display.scroller.scrollLeft + cm.doc.scrollLeft;
-    var gutterW = display.gutters.offsetWidth, left = comp + "px";
-    for (var i = 0; i < view.length; i++) { if (!view[i].hidden) {
-      if (cm.options.fixedGutter) {
-        if (view[i].gutter)
-          { view[i].gutter.style.left = left; }
-        if (view[i].gutterBackground)
-          { view[i].gutterBackground.style.left = left; }
-      }
-      var align = view[i].alignable;
-      if (align) { for (var j = 0; j < align.length; j++)
-        { align[j].style.left = left; } }
-    } }
-    if (cm.options.fixedGutter)
-      { display.gutters.style.left = (comp + gutterW) + "px"; }
-  }
-
-  // Used to ensure that the line number gutter is still the right
-  // size for the current document size. Returns true when an update
-  // is needed.
-  function maybeUpdateLineNumberWidth(cm) {
-    if (!cm.options.lineNumbers) { return false }
-    var doc = cm.doc, last = lineNumberFor(cm.options, doc.first + doc.size - 1), display = cm.display;
-    if (last.length != display.lineNumChars) {
-      var test = display.measure.appendChild(elt("div", [elt("div", last)],
-                                                 "CodeMirror-linenumber CodeMirror-gutter-elt"));
-      var innerW = test.firstChild.offsetWidth, padding = test.offsetWidth - innerW;
-      display.lineGutter.style.width = "";
-      display.lineNumInnerWidth = Math.max(innerW, display.lineGutter.offsetWidth - padding) + 1;
-      display.lineNumWidth = display.lineNumInnerWidth + padding;
-      display.lineNumChars = display.lineNumInnerWidth ? last.length : -1;
-      display.lineGutter.style.width = display.lineNumWidth + "px";
-      updateGutterSpace(cm);
-      return true
-    }
-    return false
   }
 
   // SCROLLING THINGS INTO VIEW
@@ -4207,14 +6179,15 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       if (newTop != screentop) { result.scrollTop = newTop; }
     }
 
-    var screenleft = cm.curOp && cm.curOp.scrollLeft != null ? cm.curOp.scrollLeft : display.scroller.scrollLeft;
-    var screenw = displayWidth(cm) - (cm.options.fixedGutter ? display.gutters.offsetWidth : 0);
+    var gutterSpace = cm.options.fixedGutter ? 0 : display.gutters.offsetWidth;
+    var screenleft = cm.curOp && cm.curOp.scrollLeft != null ? cm.curOp.scrollLeft : display.scroller.scrollLeft - gutterSpace;
+    var screenw = displayWidth(cm) - display.gutters.offsetWidth;
     var tooWide = rect.right - rect.left > screenw;
     if (tooWide) { rect.right = rect.left + screenw; }
     if (rect.left < 10)
       { result.scrollLeft = 0; }
     else if (rect.left < screenleft)
-      { result.scrollLeft = Math.max(0, rect.left - (tooWide ? 0 : 10)); }
+      { result.scrollLeft = Math.max(0, rect.left + gutterSpace - (tooWide ? 0 : 10)); }
     else if (rect.right > screenw + screenleft - 3)
       { result.scrollLeft = rect.right + (tooWide ? 0 : 10) - screenw; }
     return result
@@ -4242,9 +6215,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     if (y != null) { cm.curOp.scrollTop = y; }
   }
 
-  function scrollToRange(cm, range$$1) {
+  function scrollToRange(cm, range) {
     resolveScrollToPos(cm);
-    cm.curOp.scrollToPos = range$$1;
+    cm.curOp.scrollToPos = range;
   }
 
   // When an operation has its scrollToPos property set, and another
@@ -4252,11 +6225,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   // 'simulates' scrolling that position into view in a cheap way, so
   // that the effect of intermediate scroll commands is not ignored.
   function resolveScrollToPos(cm) {
-    var range$$1 = cm.curOp.scrollToPos;
-    if (range$$1) {
+    var range = cm.curOp.scrollToPos;
+    if (range) {
       cm.curOp.scrollToPos = null;
-      var from = estimateCoords(cm, range$$1.from), to = estimateCoords(cm, range$$1.to);
-      scrollToCoordsRange(cm, from, to, range$$1.margin);
+      var from = estimateCoords(cm, range.from), to = estimateCoords(cm, range.to);
+      scrollToCoordsRange(cm, from, to, range.margin);
     }
   }
 
@@ -4281,7 +6254,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   }
 
   function setScrollTop(cm, val, forceScroll) {
-    val = Math.min(cm.display.scroller.scrollHeight - cm.display.scroller.clientHeight, val);
+    val = Math.max(0, Math.min(cm.display.scroller.scrollHeight - cm.display.scroller.clientHeight, val));
     if (cm.display.scroller.scrollTop == val && !forceScroll) { return }
     cm.doc.scrollTop = val;
     cm.display.scrollbars.setScrollTop(val);
@@ -4291,7 +6264,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   // Sync scroller and scrollbar, ensure the gutter elements are
   // aligned.
   function setScrollLeft(cm, val, isScroller, forceScroll) {
-    val = Math.min(val, cm.display.scroller.scrollWidth - cm.display.scroller.clientWidth);
+    val = Math.max(0, Math.min(val, cm.display.scroller.scrollWidth - cm.display.scroller.clientWidth));
     if ((isScroller ? val == cm.doc.scrollLeft : Math.abs(cm.doc.scrollLeft - val) < 2) && !forceScroll) { return }
     cm.doc.scrollLeft = val;
     alignHorizontally(cm);
@@ -4403,9 +6376,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       // (when the bar is hidden). If it is still visible, we keep
       // it enabled, if it's hidden, we disable pointer events.
       var box = bar.getBoundingClientRect();
-      var elt$$1 = type == "vert" ? document.elementFromPoint(box.right - 1, (box.top + box.bottom) / 2)
+      var elt = type == "vert" ? document.elementFromPoint(box.right - 1, (box.top + box.bottom) / 2)
           : document.elementFromPoint((box.right + box.left) / 2, box.bottom - 1);
-      if (elt$$1 != bar) { bar.style.pointerEvents = "none"; }
+      if (elt != bar) { bar.style.pointerEvents = "none"; }
       else { delay.set(1000, maybeDisable); }
     }
     delay.set(1000, maybeDisable);
@@ -4496,7 +6469,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       viewChanged: false,      // Flag that indicates that lines might need to be redrawn
       startHeight: cm.doc.height, // Used to detect need to update scrollbar
       forceUpdate: false,      // Used to force a redraw
-      updateInput: null,       // Whether to reset the input textarea
+      updateInput: 0,       // Whether to reset the input textarea
       typing: false,           // Whether this reset should be careful to leave existing text (for compositing)
       changeObjs: null,        // Accumulated changes, for firing change events
       cursorActivityHandlers: null, // Set of handlers to fire cursorActivity on
@@ -4674,154 +6647,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     }
   }
 
-  // Updates the display.view data structure for a given change to the
-  // document. From and to are in pre-change coordinates. Lendiff is
-  // the amount of lines added or subtracted by the change. This is
-  // used for changes that span multiple lines, or change the way
-  // lines are divided into visual lines. regLineChange (below)
-  // registers single-line changes.
-  function regChange(cm, from, to, lendiff) {
-    if (from == null) { from = cm.doc.first; }
-    if (to == null) { to = cm.doc.first + cm.doc.size; }
-    if (!lendiff) { lendiff = 0; }
-
-    var display = cm.display;
-    if (lendiff && to < display.viewTo &&
-        (display.updateLineNumbers == null || display.updateLineNumbers > from))
-      { display.updateLineNumbers = from; }
-
-    cm.curOp.viewChanged = true;
-
-    if (from >= display.viewTo) { // Change after
-      if (sawCollapsedSpans && visualLineNo(cm.doc, from) < display.viewTo)
-        { resetView(cm); }
-    } else if (to <= display.viewFrom) { // Change before
-      if (sawCollapsedSpans && visualLineEndNo(cm.doc, to + lendiff) > display.viewFrom) {
-        resetView(cm);
-      } else {
-        display.viewFrom += lendiff;
-        display.viewTo += lendiff;
-      }
-    } else if (from <= display.viewFrom && to >= display.viewTo) { // Full overlap
-      resetView(cm);
-    } else if (from <= display.viewFrom) { // Top overlap
-      var cut = viewCuttingPoint(cm, to, to + lendiff, 1);
-      if (cut) {
-        display.view = display.view.slice(cut.index);
-        display.viewFrom = cut.lineN;
-        display.viewTo += lendiff;
-      } else {
-        resetView(cm);
-      }
-    } else if (to >= display.viewTo) { // Bottom overlap
-      var cut$1 = viewCuttingPoint(cm, from, from, -1);
-      if (cut$1) {
-        display.view = display.view.slice(0, cut$1.index);
-        display.viewTo = cut$1.lineN;
-      } else {
-        resetView(cm);
-      }
-    } else { // Gap in the middle
-      var cutTop = viewCuttingPoint(cm, from, from, -1);
-      var cutBot = viewCuttingPoint(cm, to, to + lendiff, 1);
-      if (cutTop && cutBot) {
-        display.view = display.view.slice(0, cutTop.index)
-          .concat(buildViewArray(cm, cutTop.lineN, cutBot.lineN))
-          .concat(display.view.slice(cutBot.index));
-        display.viewTo += lendiff;
-      } else {
-        resetView(cm);
-      }
-    }
-
-    var ext = display.externalMeasured;
-    if (ext) {
-      if (to < ext.lineN)
-        { ext.lineN += lendiff; }
-      else if (from < ext.lineN + ext.size)
-        { display.externalMeasured = null; }
-    }
-  }
-
-  // Register a change to a single line. Type must be one of "text",
-  // "gutter", "class", "widget"
-  function regLineChange(cm, line, type) {
-    cm.curOp.viewChanged = true;
-    var display = cm.display, ext = cm.display.externalMeasured;
-    if (ext && line >= ext.lineN && line < ext.lineN + ext.size)
-      { display.externalMeasured = null; }
-
-    if (line < display.viewFrom || line >= display.viewTo) { return }
-    var lineView = display.view[findViewIndex(cm, line)];
-    if (lineView.node == null) { return }
-    var arr = lineView.changes || (lineView.changes = []);
-    if (indexOf(arr, type) == -1) { arr.push(type); }
-  }
-
-  // Clear the view.
-  function resetView(cm) {
-    cm.display.viewFrom = cm.display.viewTo = cm.doc.first;
-    cm.display.view = [];
-    cm.display.viewOffset = 0;
-  }
-
-  function viewCuttingPoint(cm, oldN, newN, dir) {
-    var index = findViewIndex(cm, oldN), diff, view = cm.display.view;
-    if (!sawCollapsedSpans || newN == cm.doc.first + cm.doc.size)
-      { return {index: index, lineN: newN} }
-    var n = cm.display.viewFrom;
-    for (var i = 0; i < index; i++)
-      { n += view[i].size; }
-    if (n != oldN) {
-      if (dir > 0) {
-        if (index == view.length - 1) { return null }
-        diff = (n + view[index].size) - oldN;
-        index++;
-      } else {
-        diff = n - oldN;
-      }
-      oldN += diff; newN += diff;
-    }
-    while (visualLineNo(cm.doc, newN) != newN) {
-      if (index == (dir < 0 ? 0 : view.length - 1)) { return null }
-      newN += dir * view[index - (dir < 0 ? 1 : 0)].size;
-      index += dir;
-    }
-    return {index: index, lineN: newN}
-  }
-
-  // Force the view to cover a given range, adding empty view element
-  // or clipping off existing ones as needed.
-  function adjustView(cm, from, to) {
-    var display = cm.display, view = display.view;
-    if (view.length == 0 || from >= display.viewTo || to <= display.viewFrom) {
-      display.view = buildViewArray(cm, from, to);
-      display.viewFrom = from;
-    } else {
-      if (display.viewFrom > from)
-        { display.view = buildViewArray(cm, from, display.viewFrom).concat(display.view); }
-      else if (display.viewFrom < from)
-        { display.view = display.view.slice(findViewIndex(cm, from)); }
-      display.viewFrom = from;
-      if (display.viewTo < to)
-        { display.view = display.view.concat(buildViewArray(cm, display.viewTo, to)); }
-      else if (display.viewTo > to)
-        { display.view = display.view.slice(0, findViewIndex(cm, to)); }
-    }
-    display.viewTo = to;
-  }
-
-  // Count the number of lines in the view whose DOM representation is
-  // out of date (or nonexistent).
-  function countDirtyView(cm) {
-    var view = cm.display.view, dirty = 0;
-    for (var i = 0; i < view.length; i++) {
-      var lineView = view[i];
-      if (!lineView.hidden && (!lineView.node || lineView.changes)) { ++dirty; }
-    }
-    return dirty
-  }
-
   // HIGHLIGHT WORKER
 
   function startWorker(cm, time) {
@@ -4893,10 +6718,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       { this.events.push(arguments); }
   };
   DisplayUpdate.prototype.finish = function () {
-      var this$1 = this;
-
     for (var i = 0; i < this.events.length; i++)
-      { signal.apply(null, this$1.events[i]); }
+      { signal.apply(null, this.events[i]); }
   };
 
   function maybeClipScrollbars(cm) {
@@ -4930,12 +6753,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   function restoreSelection(snapshot) {
     if (!snapshot || !snapshot.activeElt || snapshot.activeElt == activeElt()) { return }
     snapshot.activeElt.focus();
-    if (snapshot.anchorNode && contains(document.body, snapshot.anchorNode) && contains(document.body, snapshot.focusNode)) {
-      var sel = window.getSelection(), range$$1 = document.createRange();
-      range$$1.setEnd(snapshot.anchorNode, snapshot.anchorOffset);
-      range$$1.collapse(false);
+    if (!/^(INPUT|TEXTAREA)$/.test(snapshot.activeElt.nodeName) &&
+        snapshot.anchorNode && contains(document.body, snapshot.anchorNode) && contains(document.body, snapshot.focusNode)) {
+      var sel = window.getSelection(), range = document.createRange();
+      range.setEnd(snapshot.anchorNode, snapshot.anchorOffset);
+      range.collapse(false);
       sel.removeAllRanges();
-      sel.addRange(range$$1);
+      sel.addRange(range);
       sel.extend(snapshot.focusNode, snapshot.focusOffset);
     }
   }
@@ -5028,6 +6852,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         update.visible = visibleLines(cm.display, cm.doc, viewport);
         if (update.visible.from >= cm.display.viewFrom && update.visible.to <= cm.display.viewTo)
           { break }
+      } else if (first) {
+        update.visible = visibleLines(cm.display, cm.doc, viewport);
       }
       if (!updateDisplayIfNeeded(cm, update)) { break }
       updateHeightsInViewport(cm);
@@ -5103,9 +6929,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     while (cur) { cur = rm(cur); }
   }
 
-  function updateGutterSpace(cm) {
-    var width = cm.display.gutters.offsetWidth;
-    cm.display.sizer.style.marginLeft = width + "px";
+  function updateGutterSpace(display) {
+    var width = display.gutters.offsetWidth;
+    display.sizer.style.marginLeft = width + "px";
   }
 
   function setDocumentHeight(cm, measure) {
@@ -5114,34 +6940,195 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     cm.display.gutters.style.height = (measure.docHeight + cm.display.barHeight + scrollGap(cm)) + "px";
   }
 
-  // Rebuild the gutter elements, ensure the margin to the left of the
-  // code matches their width.
-  function updateGutters(cm) {
-    var gutters = cm.display.gutters, specs = cm.options.gutters;
-    removeChildren(gutters);
-    var i = 0;
-    for (; i < specs.length; ++i) {
-      var gutterClass = specs[i];
-      var gElt = gutters.appendChild(elt("div", null, "CodeMirror-gutter " + gutterClass));
-      if (gutterClass == "CodeMirror-linenumbers") {
-        cm.display.lineGutter = gElt;
-        gElt.style.width = (cm.display.lineNumWidth || 1) + "px";
+  // Re-align line numbers and gutter marks to compensate for
+  // horizontal scrolling.
+  function alignHorizontally(cm) {
+    var display = cm.display, view = display.view;
+    if (!display.alignWidgets && (!display.gutters.firstChild || !cm.options.fixedGutter)) { return }
+    var comp = compensateForHScroll(display) - display.scroller.scrollLeft + cm.doc.scrollLeft;
+    var gutterW = display.gutters.offsetWidth, left = comp + "px";
+    for (var i = 0; i < view.length; i++) { if (!view[i].hidden) {
+      if (cm.options.fixedGutter) {
+        if (view[i].gutter)
+          { view[i].gutter.style.left = left; }
+        if (view[i].gutterBackground)
+          { view[i].gutterBackground.style.left = left; }
       }
-    }
-    gutters.style.display = i ? "" : "none";
-    updateGutterSpace(cm);
+      var align = view[i].alignable;
+      if (align) { for (var j = 0; j < align.length; j++)
+        { align[j].style.left = left; } }
+    } }
+    if (cm.options.fixedGutter)
+      { display.gutters.style.left = (comp + gutterW) + "px"; }
   }
 
-  // Make sure the gutters options contains the element
-  // "CodeMirror-linenumbers" when the lineNumbers option is true.
-  function setGuttersForLineNumbers(options) {
-    var found = indexOf(options.gutters, "CodeMirror-linenumbers");
-    if (found == -1 && options.lineNumbers) {
-      options.gutters = options.gutters.concat(["CodeMirror-linenumbers"]);
-    } else if (found > -1 && !options.lineNumbers) {
-      options.gutters = options.gutters.slice(0);
-      options.gutters.splice(found, 1);
+  // Used to ensure that the line number gutter is still the right
+  // size for the current document size. Returns true when an update
+  // is needed.
+  function maybeUpdateLineNumberWidth(cm) {
+    if (!cm.options.lineNumbers) { return false }
+    var doc = cm.doc, last = lineNumberFor(cm.options, doc.first + doc.size - 1), display = cm.display;
+    if (last.length != display.lineNumChars) {
+      var test = display.measure.appendChild(elt("div", [elt("div", last)],
+                                                 "CodeMirror-linenumber CodeMirror-gutter-elt"));
+      var innerW = test.firstChild.offsetWidth, padding = test.offsetWidth - innerW;
+      display.lineGutter.style.width = "";
+      display.lineNumInnerWidth = Math.max(innerW, display.lineGutter.offsetWidth - padding) + 1;
+      display.lineNumWidth = display.lineNumInnerWidth + padding;
+      display.lineNumChars = display.lineNumInnerWidth ? last.length : -1;
+      display.lineGutter.style.width = display.lineNumWidth + "px";
+      updateGutterSpace(cm.display);
+      return true
     }
+    return false
+  }
+
+  function getGutters(gutters, lineNumbers) {
+    var result = [], sawLineNumbers = false;
+    for (var i = 0; i < gutters.length; i++) {
+      var name = gutters[i], style = null;
+      if (typeof name != "string") { style = name.style; name = name.className; }
+      if (name == "CodeMirror-linenumbers") {
+        if (!lineNumbers) { continue }
+        else { sawLineNumbers = true; }
+      }
+      result.push({className: name, style: style});
+    }
+    if (lineNumbers && !sawLineNumbers) { result.push({className: "CodeMirror-linenumbers", style: null}); }
+    return result
+  }
+
+  // Rebuild the gutter elements, ensure the margin to the left of the
+  // code matches their width.
+  function renderGutters(display) {
+    var gutters = display.gutters, specs = display.gutterSpecs;
+    removeChildren(gutters);
+    display.lineGutter = null;
+    for (var i = 0; i < specs.length; ++i) {
+      var ref = specs[i];
+      var className = ref.className;
+      var style = ref.style;
+      var gElt = gutters.appendChild(elt("div", null, "CodeMirror-gutter " + className));
+      if (style) { gElt.style.cssText = style; }
+      if (className == "CodeMirror-linenumbers") {
+        display.lineGutter = gElt;
+        gElt.style.width = (display.lineNumWidth || 1) + "px";
+      }
+    }
+    gutters.style.display = specs.length ? "" : "none";
+    updateGutterSpace(display);
+  }
+
+  function updateGutters(cm) {
+    renderGutters(cm.display);
+    regChange(cm);
+    alignHorizontally(cm);
+  }
+
+  // The display handles the DOM integration, both for input reading
+  // and content drawing. It holds references to DOM nodes and
+  // display-related state.
+
+  function Display(place, doc, input, options) {
+    var d = this;
+    this.input = input;
+
+    // Covers bottom-right square when both scrollbars are present.
+    d.scrollbarFiller = elt("div", null, "CodeMirror-scrollbar-filler");
+    d.scrollbarFiller.setAttribute("cm-not-content", "true");
+    // Covers bottom of gutter when coverGutterNextToScrollbar is on
+    // and h scrollbar is present.
+    d.gutterFiller = elt("div", null, "CodeMirror-gutter-filler");
+    d.gutterFiller.setAttribute("cm-not-content", "true");
+    // Will contain the actual code, positioned to cover the viewport.
+    d.lineDiv = eltP("div", null, "CodeMirror-code");
+    // Elements are added to these to represent selection and cursors.
+    d.selectionDiv = elt("div", null, null, "position: relative; z-index: 1");
+    d.cursorDiv = elt("div", null, "CodeMirror-cursors");
+    // A visibility: hidden element used to find the size of things.
+    d.measure = elt("div", null, "CodeMirror-measure");
+    // When lines outside of the viewport are measured, they are drawn in this.
+    d.lineMeasure = elt("div", null, "CodeMirror-measure");
+    // Wraps everything that needs to exist inside the vertically-padded coordinate system
+    d.lineSpace = eltP("div", [d.measure, d.lineMeasure, d.selectionDiv, d.cursorDiv, d.lineDiv],
+                      null, "position: relative; outline: none");
+    var lines = eltP("div", [d.lineSpace], "CodeMirror-lines");
+    // Moved around its parent to cover visible view.
+    d.mover = elt("div", [lines], null, "position: relative");
+    // Set to the height of the document, allowing scrolling.
+    d.sizer = elt("div", [d.mover], "CodeMirror-sizer");
+    d.sizerWidth = null;
+    // Behavior of elts with overflow: auto and padding is
+    // inconsistent across browsers. This is used to ensure the
+    // scrollable area is big enough.
+    d.heightForcer = elt("div", null, null, "position: absolute; height: " + scrollerGap + "px; width: 1px;");
+    // Will contain the gutters, if any.
+    d.gutters = elt("div", null, "CodeMirror-gutters");
+    d.lineGutter = null;
+    // Actual scrollable element.
+    d.scroller = elt("div", [d.sizer, d.heightForcer, d.gutters], "CodeMirror-scroll");
+    d.scroller.setAttribute("tabIndex", "-1");
+    // The element in which the editor lives.
+    d.wrapper = elt("div", [d.scrollbarFiller, d.gutterFiller, d.scroller], "CodeMirror");
+
+    // Work around IE7 z-index bug (not perfect, hence IE7 not really being supported)
+    if (ie && ie_version < 8) { d.gutters.style.zIndex = -1; d.scroller.style.paddingRight = 0; }
+    if (!webkit && !(gecko && mobile)) { d.scroller.draggable = true; }
+
+    if (place) {
+      if (place.appendChild) { place.appendChild(d.wrapper); }
+      else { place(d.wrapper); }
+    }
+
+    // Current rendered range (may be bigger than the view window).
+    d.viewFrom = d.viewTo = doc.first;
+    d.reportedViewFrom = d.reportedViewTo = doc.first;
+    // Information about the rendered lines.
+    d.view = [];
+    d.renderedView = null;
+    // Holds info about a single rendered line when it was rendered
+    // for measurement, while not in view.
+    d.externalMeasured = null;
+    // Empty space (in pixels) above the view
+    d.viewOffset = 0;
+    d.lastWrapHeight = d.lastWrapWidth = 0;
+    d.updateLineNumbers = null;
+
+    d.nativeBarWidth = d.barHeight = d.barWidth = 0;
+    d.scrollbarsClipped = false;
+
+    // Used to only resize the line number gutter when necessary (when
+    // the amount of lines crosses a boundary that makes its width change)
+    d.lineNumWidth = d.lineNumInnerWidth = d.lineNumChars = null;
+    // Set to true when a non-horizontal-scrolling line widget is
+    // added. As an optimization, line widget aligning is skipped when
+    // this is false.
+    d.alignWidgets = false;
+
+    d.cachedCharWidth = d.cachedTextHeight = d.cachedPaddingH = null;
+
+    // Tracks the maximum line length so that the horizontal scrollbar
+    // can be kept static when scrolling.
+    d.maxLine = null;
+    d.maxLineLength = 0;
+    d.maxLineChanged = false;
+
+    // Used for measuring wheel scrolling granularity
+    d.wheelDX = d.wheelDY = d.wheelStartX = d.wheelStartY = null;
+
+    // True when shift is held down.
+    d.shift = false;
+
+    // Used to track whether anything happened since the context menu
+    // was opened.
+    d.selForContextMenu = null;
+
+    d.activeTouch = null;
+
+    d.gutterSpecs = getGutters(options.gutters, options.lineNumbers);
+    renderGutters(d);
+
+    input.init(d);
   }
 
   // Since the delta values reported on mouse wheel events are
@@ -5267,40 +7254,32 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   Selection.prototype.primary = function () { return this.ranges[this.primIndex] };
 
   Selection.prototype.equals = function (other) {
-      var this$1 = this;
-
     if (other == this) { return true }
     if (other.primIndex != this.primIndex || other.ranges.length != this.ranges.length) { return false }
     for (var i = 0; i < this.ranges.length; i++) {
-      var here = this$1.ranges[i], there = other.ranges[i];
+      var here = this.ranges[i], there = other.ranges[i];
       if (!equalCursorPos(here.anchor, there.anchor) || !equalCursorPos(here.head, there.head)) { return false }
     }
     return true
   };
 
   Selection.prototype.deepCopy = function () {
-      var this$1 = this;
-
     var out = [];
     for (var i = 0; i < this.ranges.length; i++)
-      { out[i] = new Range(copyPos(this$1.ranges[i].anchor), copyPos(this$1.ranges[i].head)); }
+      { out[i] = new Range(copyPos(this.ranges[i].anchor), copyPos(this.ranges[i].head)); }
     return new Selection(out, this.primIndex)
   };
 
   Selection.prototype.somethingSelected = function () {
-      var this$1 = this;
-
     for (var i = 0; i < this.ranges.length; i++)
-      { if (!this$1.ranges[i].empty()) { return true } }
+      { if (!this.ranges[i].empty()) { return true } }
     return false
   };
 
   Selection.prototype.contains = function (pos, end) {
-      var this$1 = this;
-
     if (!end) { end = pos; }
     for (var i = 0; i < this.ranges.length; i++) {
-      var range = this$1.ranges[i];
+      var range = this.ranges[i];
       if (cmp(end, range.from()) >= 0 && cmp(pos, range.to()) <= 0)
         { return i }
     }
@@ -5426,16 +7405,16 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   }
 
   // Perform a change on the document data structure.
-  function updateDoc(doc, change, markedSpans, estimateHeight$$1) {
+  function updateDoc(doc, change, markedSpans, estimateHeight) {
     function spansFor(n) {return markedSpans ? markedSpans[n] : null}
     function update(line, text, spans) {
-      updateLine(line, text, spans, estimateHeight$$1);
+      updateLine(line, text, spans, estimateHeight);
       signalLater(line, "change", line, change);
     }
     function linesFor(start, end) {
       var result = [];
       for (var i = start; i < end; ++i)
-        { result.push(new Line(text[i], spansFor(i), estimateHeight$$1)); }
+        { result.push(new Line(text[i], spansFor(i), estimateHeight)); }
       return result
     }
 
@@ -5459,7 +7438,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         update(firstLine, firstLine.text.slice(0, from.ch) + lastText + firstLine.text.slice(to.ch), lastSpans);
       } else {
         var added$1 = linesFor(1, text.length - 1);
-        added$1.push(new Line(lastText + firstLine.text.slice(to.ch), lastSpans, estimateHeight$$1));
+        added$1.push(new Line(lastText + firstLine.text.slice(to.ch), lastSpans, estimateHeight));
         update(firstLine, firstLine.text.slice(0, from.ch) + text[0], spansFor(0));
         doc.insert(from.line + 1, added$1);
       }
@@ -5796,11 +7775,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var obj = {
       ranges: sel.ranges,
       update: function(ranges) {
-        var this$1 = this;
-
         this.ranges = [];
         for (var i = 0; i < ranges.length; i++)
-          { this$1.ranges[i] = new Range(clipPos(doc, ranges[i].anchor),
+          { this.ranges[i] = new Range(clipPos(doc, ranges[i].anchor),
                                      clipPos(doc, ranges[i].head)); }
       },
       origin: options && options.origin
@@ -5845,7 +7822,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     doc.sel = sel;
 
     if (doc.cm) {
-      doc.cm.curOp.updateInput = doc.cm.curOp.selectionChanged = true;
+      doc.cm.curOp.updateInput = 1;
+      doc.cm.curOp.selectionChanged = true;
       signalCursorActivity(doc.cm);
     }
     signalLater(doc, "cursorActivity", doc);
@@ -5878,8 +7856,15 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var line = getLine(doc, pos.line);
     if (line.markedSpans) { for (var i = 0; i < line.markedSpans.length; ++i) {
       var sp = line.markedSpans[i], m = sp.marker;
-      if ((sp.from == null || (m.inclusiveLeft ? sp.from <= pos.ch : sp.from < pos.ch)) &&
-          (sp.to == null || (m.inclusiveRight ? sp.to >= pos.ch : sp.to > pos.ch))) {
+
+      // Determine if we should prevent the cursor being placed to the left/right of an atomic marker
+      // Historically this was determined using the inclusiveLeft/Right option, but the new way to control it
+      // is with selectLeft/Right
+      var preventCursorLeft = ("selectLeft" in m) ? !m.selectLeft : m.inclusiveLeft;
+      var preventCursorRight = ("selectRight" in m) ? !m.selectRight : m.inclusiveRight;
+
+      if ((sp.from == null || (preventCursorLeft ? sp.from <= pos.ch : sp.from < pos.ch)) &&
+          (sp.to == null || (preventCursorRight ? sp.to >= pos.ch : sp.to > pos.ch))) {
         if (mayClear) {
           signal(m, "beforeCursorEnter");
           if (m.explicitlyCleared) {
@@ -5891,14 +7876,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
         if (oldPos) {
           var near = m.find(dir < 0 ? 1 : -1), diff = (void 0);
-          if (dir < 0 ? m.inclusiveRight : m.inclusiveLeft)
+          if (dir < 0 ? preventCursorRight : preventCursorLeft)
             { near = movePos(doc, near, -dir, near && near.line == pos.line ? line : null); }
           if (near && near.line == pos.line && (diff = cmp(near, oldPos)) && (dir < 0 ? diff < 0 : diff > 0))
             { return skipAtomicInner(doc, near, pos, dir, mayClear) }
         }
 
         var far = m.find(dir < 0 ? -1 : 1);
-        if (dir < 0 ? m.inclusiveLeft : m.inclusiveRight)
+        if (dir < 0 ? preventCursorLeft : preventCursorRight)
           { far = movePos(doc, far, dir, far.line == pos.line ? line : null); }
         return far ? skipAtomicInner(doc, far, pos, dir, mayClear) : null
       }
@@ -5957,7 +7942,10 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     signal(doc, "beforeChange", doc, obj);
     if (doc.cm) { signal(doc.cm, "beforeChange", doc.cm, obj); }
 
-    if (obj.canceled) { return null }
+    if (obj.canceled) {
+      if (doc.cm) { doc.cm.curOp.updateInput = 2; }
+      return null
+    }
     return {from: obj.from, to: obj.to, text: obj.text, origin: obj.origin}
   }
 
@@ -6124,6 +8112,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     if (doc.cm) { makeChangeSingleDocInEditor(doc.cm, change, spans); }
     else { updateDoc(doc, change, spans); }
     setSelectionNoUndo(doc, selAfter, sel_dontScroll);
+
+    if (doc.cantEdit && skipAtomic(doc, Pos(doc.firstLine(), 0)))
+      { doc.cantEdit = false; }
   }
 
   // Handle the interaction of a change to a document with the editor
@@ -6273,13 +8264,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   // See also http://marijnhaverbeke.nl/blog/codemirror-line-tree.html
 
   function LeafChunk(lines) {
-    var this$1 = this;
-
     this.lines = lines;
     this.parent = null;
     var height = 0;
     for (var i = 0; i < lines.length; ++i) {
-      lines[i].parent = this$1;
+      lines[i].parent = this;
       height += lines[i].height;
     }
     this.height = height;
@@ -6290,11 +8279,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
     // Remove the n lines at offset 'at'.
     removeInner: function(at, n) {
-      var this$1 = this;
-
       for (var i = at, e = at + n; i < e; ++i) {
-        var line = this$1.lines[i];
-        this$1.height -= line.height;
+        var line = this.lines[i];
+        this.height -= line.height;
         cleanUpLine(line);
         signalLater(line, "delete");
       }
@@ -6309,31 +8296,25 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     // Insert the given array of lines at offset 'at', count them as
     // having the given height.
     insertInner: function(at, lines, height) {
-      var this$1 = this;
-
       this.height += height;
       this.lines = this.lines.slice(0, at).concat(lines).concat(this.lines.slice(at));
-      for (var i = 0; i < lines.length; ++i) { lines[i].parent = this$1; }
+      for (var i = 0; i < lines.length; ++i) { lines[i].parent = this; }
     },
 
     // Used to iterate over a part of the tree.
     iterN: function(at, n, op) {
-      var this$1 = this;
-
       for (var e = at + n; at < e; ++at)
-        { if (op(this$1.lines[at])) { return true } }
+        { if (op(this.lines[at])) { return true } }
     }
   };
 
   function BranchChunk(children) {
-    var this$1 = this;
-
     this.children = children;
     var size = 0, height = 0;
     for (var i = 0; i < children.length; ++i) {
       var ch = children[i];
       size += ch.chunkSize(); height += ch.height;
-      ch.parent = this$1;
+      ch.parent = this;
     }
     this.size = size;
     this.height = height;
@@ -6344,16 +8325,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     chunkSize: function() { return this.size },
 
     removeInner: function(at, n) {
-      var this$1 = this;
-
       this.size -= n;
       for (var i = 0; i < this.children.length; ++i) {
-        var child = this$1.children[i], sz = child.chunkSize();
+        var child = this.children[i], sz = child.chunkSize();
         if (at < sz) {
           var rm = Math.min(n, sz - at), oldHeight = child.height;
           child.removeInner(at, rm);
-          this$1.height -= oldHeight - child.height;
-          if (sz == rm) { this$1.children.splice(i--, 1); child.parent = null; }
+          this.height -= oldHeight - child.height;
+          if (sz == rm) { this.children.splice(i--, 1); child.parent = null; }
           if ((n -= rm) == 0) { break }
           at = 0;
         } else { at -= sz; }
@@ -6370,18 +8349,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     },
 
     collapse: function(lines) {
-      var this$1 = this;
-
-      for (var i = 0; i < this.children.length; ++i) { this$1.children[i].collapse(lines); }
+      for (var i = 0; i < this.children.length; ++i) { this.children[i].collapse(lines); }
     },
 
     insertInner: function(at, lines, height) {
-      var this$1 = this;
-
       this.size += lines.length;
       this.height += height;
       for (var i = 0; i < this.children.length; ++i) {
-        var child = this$1.children[i], sz = child.chunkSize();
+        var child = this.children[i], sz = child.chunkSize();
         if (at <= sz) {
           child.insertInner(at, lines, height);
           if (child.lines && child.lines.length > 50) {
@@ -6391,11 +8366,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
             for (var pos = remaining; pos < child.lines.length;) {
               var leaf = new LeafChunk(child.lines.slice(pos, pos += 25));
               child.height -= leaf.height;
-              this$1.children.splice(++i, 0, leaf);
-              leaf.parent = this$1;
+              this.children.splice(++i, 0, leaf);
+              leaf.parent = this;
             }
             child.lines = child.lines.slice(0, remaining);
-            this$1.maybeSpill();
+            this.maybeSpill();
           }
           break
         }
@@ -6427,10 +8402,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     },
 
     iterN: function(at, n, op) {
-      var this$1 = this;
-
       for (var i = 0; i < this.children.length; ++i) {
-        var child = this$1.children[i], sz = child.chunkSize();
+        var child = this.children[i], sz = child.chunkSize();
         if (at < sz) {
           var used = Math.min(n, sz - at);
           if (child.iterN(at, used, op)) { return true }
@@ -6444,20 +8417,16 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   // Line widgets are block elements displayed above or below a line.
 
   var LineWidget = function(doc, node, options) {
-    var this$1 = this;
-
     if (options) { for (var opt in options) { if (options.hasOwnProperty(opt))
-      { this$1[opt] = options[opt]; } } }
+      { this[opt] = options[opt]; } } }
     this.doc = doc;
     this.node = node;
   };
 
   LineWidget.prototype.clear = function () {
-      var this$1 = this;
-
     var cm = this.doc.cm, ws = this.line.widgets, line = this.line, no = lineNo(line);
     if (no == null || !ws) { return }
-    for (var i = 0; i < ws.length; ++i) { if (ws[i] == this$1) { ws.splice(i--, 1); } }
+    for (var i = 0; i < ws.length; ++i) { if (ws[i] == this) { ws.splice(i--, 1); } }
     if (!ws.length) { line.widgets = null; }
     var height = widgetHeight(this);
     updateLineHeight(line, Math.max(0, line.height - height));
@@ -6540,8 +8509,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   // Clear the marker.
   TextMarker.prototype.clear = function () {
-      var this$1 = this;
-
     if (this.explicitlyCleared) { return }
     var cm = this.doc.cm, withOp = cm && !cm.curOp;
     if (withOp) { startOperation(cm); }
@@ -6551,19 +8518,19 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     }
     var min = null, max = null;
     for (var i = 0; i < this.lines.length; ++i) {
-      var line = this$1.lines[i];
-      var span = getMarkedSpanFor(line.markedSpans, this$1);
-      if (cm && !this$1.collapsed) { regLineChange(cm, lineNo(line), "text"); }
+      var line = this.lines[i];
+      var span = getMarkedSpanFor(line.markedSpans, this);
+      if (cm && !this.collapsed) { regLineChange(cm, lineNo(line), "text"); }
       else if (cm) {
         if (span.to != null) { max = lineNo(line); }
         if (span.from != null) { min = lineNo(line); }
       }
       line.markedSpans = removeMarkedSpan(line.markedSpans, span);
-      if (span.from == null && this$1.collapsed && !lineIsHidden(this$1.doc, line) && cm)
+      if (span.from == null && this.collapsed && !lineIsHidden(this.doc, line) && cm)
         { updateLineHeight(line, textHeight(cm.display)); }
     }
     if (cm && this.collapsed && !cm.options.lineWrapping) { for (var i$1 = 0; i$1 < this.lines.length; ++i$1) {
-      var visual = visualLine(this$1.lines[i$1]), len = lineLength(visual);
+      var visual = visualLine(this.lines[i$1]), len = lineLength(visual);
       if (len > cm.display.maxLineLength) {
         cm.display.maxLine = visual;
         cm.display.maxLineLength = len;
@@ -6589,13 +8556,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   // Pos objects returned contain a line object, rather than a line
   // number (used to prevent looking up the same line twice).
   TextMarker.prototype.find = function (side, lineObj) {
-      var this$1 = this;
-
     if (side == null && this.type == "bookmark") { side = 1; }
     var from, to;
     for (var i = 0; i < this.lines.length; ++i) {
-      var line = this$1.lines[i];
-      var span = getMarkedSpanFor(line.markedSpans, this$1);
+      var line = this.lines[i];
+      var span = getMarkedSpanFor(line.markedSpans, this);
       if (span.from != null) {
         from = Pos(lineObj ? line : lineNo(line), span.from);
         if (side == -1) { return from }
@@ -6729,21 +8694,17 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   // implemented as a meta-marker-object controlling multiple normal
   // markers.
   var SharedTextMarker = function(markers, primary) {
-    var this$1 = this;
-
     this.markers = markers;
     this.primary = primary;
     for (var i = 0; i < markers.length; ++i)
-      { markers[i].parent = this$1; }
+      { markers[i].parent = this; }
   };
 
   SharedTextMarker.prototype.clear = function () {
-      var this$1 = this;
-
     if (this.explicitlyCleared) { return }
     this.explicitlyCleared = true;
     for (var i = 0; i < this.markers.length; ++i)
-      { this$1.markers[i].clear(); }
+      { this.markers[i].clear(); }
     signalLater(this, "clear");
   };
 
@@ -6886,11 +8847,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     clipPos: function(pos) {return clipPos(this, pos)},
 
     getCursor: function(start) {
-      var range$$1 = this.sel.primary(), pos;
-      if (start == null || start == "head") { pos = range$$1.head; }
-      else if (start == "anchor") { pos = range$$1.anchor; }
-      else if (start == "end" || start == "to" || start === false) { pos = range$$1.to(); }
-      else { pos = range$$1.from(); }
+      var range = this.sel.primary(), pos;
+      if (start == null || start == "head") { pos = range.head; }
+      else if (start == "anchor") { pos = range.anchor; }
+      else if (start == "end" || start == "to" || start === false) { pos = range.to(); }
+      else { pos = range.from(); }
       return pos
     },
     listSelections: function() { return this.sel.ranges },
@@ -6913,13 +8874,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       extendSelections(this, clipPosArray(this, heads), options);
     }),
     setSelections: docMethodOp(function(ranges, primary, options) {
-      var this$1 = this;
-
       if (!ranges.length) { return }
       var out = [];
       for (var i = 0; i < ranges.length; i++)
-        { out[i] = new Range(clipPos(this$1, ranges[i].anchor),
-                           clipPos(this$1, ranges[i].head)); }
+        { out[i] = new Range(clipPos(this, ranges[i].anchor),
+                           clipPos(this, ranges[i].head)); }
       if (primary == null) { primary = Math.min(ranges.length - 1, this.sel.primIndex); }
       setSelection(this, normalizeSelection(this.cm, out, primary), options);
     }),
@@ -6930,23 +8889,19 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     }),
 
     getSelection: function(lineSep) {
-      var this$1 = this;
-
       var ranges = this.sel.ranges, lines;
       for (var i = 0; i < ranges.length; i++) {
-        var sel = getBetween(this$1, ranges[i].from(), ranges[i].to());
+        var sel = getBetween(this, ranges[i].from(), ranges[i].to());
         lines = lines ? lines.concat(sel) : sel;
       }
       if (lineSep === false) { return lines }
       else { return lines.join(lineSep || this.lineSeparator()) }
     },
     getSelections: function(lineSep) {
-      var this$1 = this;
-
       var parts = [], ranges = this.sel.ranges;
       for (var i = 0; i < ranges.length; i++) {
-        var sel = getBetween(this$1, ranges[i].from(), ranges[i].to());
-        if (lineSep !== false) { sel = sel.join(lineSep || this$1.lineSeparator()); }
+        var sel = getBetween(this, ranges[i].from(), ranges[i].to());
+        if (lineSep !== false) { sel = sel.join(lineSep || this.lineSeparator()); }
         parts[i] = sel;
       }
       return parts
@@ -6958,16 +8913,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       this.replaceSelections(dup, collapse, origin || "+input");
     },
     replaceSelections: docMethodOp(function(code, collapse, origin) {
-      var this$1 = this;
-
       var changes = [], sel = this.sel;
       for (var i = 0; i < sel.ranges.length; i++) {
-        var range$$1 = sel.ranges[i];
-        changes[i] = {from: range$$1.from(), to: range$$1.to(), text: this$1.splitLines(code[i]), origin: origin};
+        var range = sel.ranges[i];
+        changes[i] = {from: range.from(), to: range.to(), text: this.splitLines(code[i]), origin: origin};
       }
       var newSel = collapse && collapse != "end" && computeReplacedSel(this, changes, collapse);
       for (var i$1 = changes.length - 1; i$1 >= 0; i$1--)
-        { makeChange(this$1, changes[i$1]); }
+        { makeChange(this, changes[i$1]); }
       if (newSel) { setSelectionReplaceHistory(this, newSel); }
       else if (this.cm) { ensureCursorVisible(this.cm); }
     }),
@@ -6985,7 +8938,12 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       for (var i$1 = 0; i$1 < hist.undone.length; i$1++) { if (!hist.undone[i$1].ranges) { ++undone; } }
       return {undo: done, redo: undone}
     },
-    clearHistory: function() {this.history = new History(this.history.maxGeneration);},
+    clearHistory: function() {
+      var this$1 = this;
+
+      this.history = new History(this.history.maxGeneration);
+      linkedDocs(this, function (doc) { return doc.history = this$1.history; }, true);
+    },
 
     markClean: function() {
       this.cleanGeneration = this.changeGeneration(true);
@@ -7106,18 +9064,18 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     },
     findMarks: function(from, to, filter) {
       from = clipPos(this, from); to = clipPos(this, to);
-      var found = [], lineNo$$1 = from.line;
+      var found = [], lineNo = from.line;
       this.iter(from.line, to.line + 1, function (line) {
         var spans = line.markedSpans;
         if (spans) { for (var i = 0; i < spans.length; i++) {
           var span = spans[i];
-          if (!(span.to != null && lineNo$$1 == from.line && from.ch >= span.to ||
-                span.from == null && lineNo$$1 != from.line ||
-                span.from != null && lineNo$$1 == to.line && span.from >= to.ch) &&
+          if (!(span.to != null && lineNo == from.line && from.ch >= span.to ||
+                span.from == null && lineNo != from.line ||
+                span.from != null && lineNo == to.line && span.from >= to.ch) &&
               (!filter || filter(span.marker)))
             { found.push(span.marker.parent || span.marker); }
         } }
-        ++lineNo$$1;
+        ++lineNo;
       });
       return found
     },
@@ -7132,14 +9090,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     },
 
     posFromIndex: function(off) {
-      var ch, lineNo$$1 = this.first, sepSize = this.lineSeparator().length;
+      var ch, lineNo = this.first, sepSize = this.lineSeparator().length;
       this.iter(function (line) {
         var sz = line.text.length + sepSize;
         if (sz > off) { ch = off; return true }
         off -= sz;
-        ++lineNo$$1;
+        ++lineNo;
       });
-      return clipPos(this, Pos(lineNo$$1, ch))
+      return clipPos(this, Pos(lineNo, ch))
     },
     indexFromPos: function (coords) {
       coords = clipPos(this, coords);
@@ -7178,15 +9136,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       return copy
     },
     unlinkDoc: function(other) {
-      var this$1 = this;
-
       if (other instanceof CodeMirror) { other = other.doc; }
       if (this.linked) { for (var i = 0; i < this.linked.length; ++i) {
-        var link = this$1.linked[i];
+        var link = this.linked[i];
         if (link.doc != other) { continue }
-        this$1.linked.splice(i, 1);
-        other.unlinkDoc(this$1);
-        detachSharedMarkers(findSharedMarkers(this$1));
+        this.linked.splice(i, 1);
+        other.unlinkDoc(this);
+        detachSharedMarkers(findSharedMarkers(this));
         break
       } }
       // If the histories were shared, split them again
@@ -7238,28 +9194,39 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     // and insert it.
     if (files && files.length && window.FileReader && window.File) {
       var n = files.length, text = Array(n), read = 0;
-      var loadFile = function (file, i) {
-        if (cm.options.allowDropFileTypes &&
-            indexOf(cm.options.allowDropFileTypes, file.type) == -1)
-          { return }
-
-        var reader = new FileReader;
-        reader.onload = operation(cm, function () {
-          var content = reader.result;
-          if (/[\x00-\x08\x0e-\x1f]{2}/.test(content)) { content = ""; }
-          text[i] = content;
-          if (++read == n) {
+      var markAsReadAndPasteIfAllFilesAreRead = function () {
+        if (++read == n) {
+          operation(cm, function () {
             pos = clipPos(cm.doc, pos);
             var change = {from: pos, to: pos,
-                          text: cm.doc.splitLines(text.join(cm.doc.lineSeparator())),
+                          text: cm.doc.splitLines(
+                              text.filter(function (t) { return t != null; }).join(cm.doc.lineSeparator())),
                           origin: "paste"};
             makeChange(cm.doc, change);
-            setSelectionReplaceHistory(cm.doc, simpleSelection(pos, changeEnd(change)));
+            setSelectionReplaceHistory(cm.doc, simpleSelection(clipPos(cm.doc, pos), clipPos(cm.doc, changeEnd(change))));
+          })();
+        }
+      };
+      var readTextFromFile = function (file, i) {
+        if (cm.options.allowDropFileTypes &&
+            indexOf(cm.options.allowDropFileTypes, file.type) == -1) {
+          markAsReadAndPasteIfAllFilesAreRead();
+          return
+        }
+        var reader = new FileReader;
+        reader.onerror = function () { return markAsReadAndPasteIfAllFilesAreRead(); };
+        reader.onload = function () {
+          var content = reader.result;
+          if (/[\x00-\x08\x0e-\x1f]{2}/.test(content)) {
+            markAsReadAndPasteIfAllFilesAreRead();
+            return
           }
-        });
+          text[i] = content;
+          markAsReadAndPasteIfAllFilesAreRead();
+        };
         reader.readAsText(file);
       };
-      for (var i = 0; i < n; ++i) { loadFile(files[i], i); }
+      for (var i = 0; i < files.length; i++) { readTextFromFile(files[i], i); }
     } else { // Normal drop
       // Don't do a replace if the drop happened inside of the selected text.
       if (cm.state.draggingText && cm.doc.sel.contains(pos) > -1) {
@@ -7281,7 +9248,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
           cm.display.input.focus();
         }
       }
-      catch(e){}
+      catch(e$1){}
     }
   }
 
@@ -7375,9 +9342,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     19: "Pause", 20: "CapsLock", 27: "Esc", 32: "Space", 33: "PageUp", 34: "PageDown", 35: "End",
     36: "Home", 37: "Left", 38: "Up", 39: "Right", 40: "Down", 44: "PrintScrn", 45: "Insert",
     46: "Delete", 59: ";", 61: "=", 91: "Mod", 92: "Mod", 93: "Mod",
-    106: "*", 107: "=", 109: "-", 110: ".", 111: "/", 127: "Delete", 145: "ScrollLock",
+    106: "*", 107: "=", 109: "-", 110: ".", 111: "/", 145: "ScrollLock",
     173: "-", 186: ";", 187: "=", 188: ",", 189: "-", 190: ".", 191: "/", 192: "`", 219: "[", 220: "\\",
-    221: "]", 222: "'", 63232: "Up", 63233: "Down", 63234: "Left", 63235: "Right", 63272: "Delete",
+    221: "]", 222: "'", 224: "Mod", 63232: "Up", 63233: "Down", 63234: "Left", 63235: "Right", 63272: "Delete",
     63273: "Home", 63275: "End", 63276: "PageUp", 63277: "PageDown", 63302: "Insert"
   };
 
@@ -7484,18 +9451,18 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     return keymap
   }
 
-  function lookupKey(key, map$$1, handle, context) {
-    map$$1 = getKeyMap(map$$1);
-    var found = map$$1.call ? map$$1.call(key, context) : map$$1[key];
+  function lookupKey(key, map, handle, context) {
+    map = getKeyMap(map);
+    var found = map.call ? map.call(key, context) : map[key];
     if (found === false) { return "nothing" }
     if (found === "...") { return "multi" }
     if (found != null && handle(found)) { return "handled" }
 
-    if (map$$1.fallthrough) {
-      if (Object.prototype.toString.call(map$$1.fallthrough) != "[object Array]")
-        { return lookupKey(key, map$$1.fallthrough, handle, context) }
-      for (var i = 0; i < map$$1.fallthrough.length; i++) {
-        var result = lookupKey(key, map$$1.fallthrough[i], handle, context);
+    if (map.fallthrough) {
+      if (Object.prototype.toString.call(map.fallthrough) != "[object Array]")
+        { return lookupKey(key, map.fallthrough, handle, context) }
+      for (var i = 0; i < map.fallthrough.length; i++) {
+        var result = lookupKey(key, map.fallthrough[i], handle, context);
         if (result) { return result }
       }
     }
@@ -7512,7 +9479,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var base = name;
     if (event.altKey && base != "Alt") { name = "Alt-" + name; }
     if ((flipCtrlCmd ? event.metaKey : event.ctrlKey) && base != "Ctrl") { name = "Ctrl-" + name; }
-    if ((flipCtrlCmd ? event.ctrlKey : event.metaKey) && base != "Cmd") { name = "Cmd-" + name; }
+    if ((flipCtrlCmd ? event.ctrlKey : event.metaKey) && base != "Mod") { name = "Cmd-" + name; }
     if (!noShift && event.shiftKey && base != "Shift") { name = "Shift-" + name; }
     return name
   }
@@ -7569,6 +9536,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   function endOfLine(visually, cm, lineObj, lineNo, dir) {
     if (visually) {
+      if (cm.doc.direction == "rtl") { dir = -dir; }
       var order = getOrder(lineObj, cm.doc.direction);
       if (order) {
         var part = dir < 0 ? lst(order) : order[0];
@@ -7737,7 +9705,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     goGroupRight: function (cm) { return cm.moveH(1, "group"); },
     goGroupLeft: function (cm) { return cm.moveH(-1, "group"); },
     goWordRight: function (cm) { return cm.moveH(1, "word"); },
-    delCharBefore: function (cm) { return cm.deleteH(-1, "char"); },
+    delCharBefore: function (cm) { return cm.deleteH(-1, "codepoint"); },
     delCharAfter: function (cm) { return cm.deleteH(1, "char"); },
     delWordBefore: function (cm) { return cm.deleteH(-1, "word"); },
     delWordAfter: function (cm) { return cm.deleteH(1, "word"); },
@@ -7823,7 +9791,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var line = getLine(cm.doc, start.line);
     var order = getOrder(line, cm.doc.direction);
     if (!order || order[0].level == 0) {
-      var firstNonWS = Math.max(0, line.text.search(/\S/));
+      var firstNonWS = Math.max(start.ch, line.text.search(/\S/));
       var inWS = pos.line == start.line && pos.ch <= firstNonWS && pos.ch;
       return Pos(start.line, inWS ? 0 : firstNonWS, start.sticky)
     }
@@ -7926,6 +9894,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   var lastStoppedKey = null;
   function onKeyDown(e) {
     var cm = this;
+    if (e.target && e.target != cm.display.input.getField()) { return }
     cm.curOp.focus = activeElt();
     if (signalDOMEvent(cm, e)) { return }
     // IE does strange things with escape.
@@ -7939,6 +9908,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       if (!handled && code == 88 && !hasCopyEvent && (mac ? e.metaKey : e.ctrlKey))
         { cm.replaceSelection("", null, "cut"); }
     }
+    if (gecko && !mac && !handled && code == 46 && e.shiftKey && !e.ctrlKey && document.execCommand)
+      { document.execCommand("cut"); }
 
     // Turn mouse into crosshair when Alt is held on Mac.
     if (code == 18 && !/\bCodeMirror-crosshair\b/.test(cm.display.lineDiv.className))
@@ -7967,6 +9938,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   function onKeyPress(e) {
     var cm = this;
+    if (e.target && e.target != cm.display.input.getField()) { return }
     if (eventInWidget(cm.display, e) || signalDOMEvent(cm, e) || e.ctrlKey && !e.altKey || mac && e.metaKey) { return }
     var keyCode = e.keyCode, charCode = e.charCode;
     if (presto && keyCode == lastStoppedKey) {lastStoppedKey = null; e_preventDefault(e); return}
@@ -8115,8 +10087,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         if (!behavior.addNew)
           { extendSelection(cm.doc, pos, null, null, behavior.extend); }
         // Work around unexplainable focus problem in IE9 (#2127) and Chrome (#3081)
-        if (webkit || ie && ie_version == 9)
-          { setTimeout(function () {display.wrapper.ownerDocument.body.focus(); display.input.focus();}, 20); }
+        if ((webkit && !safari) || ie && ie_version == 9)
+          { setTimeout(function () {display.wrapper.ownerDocument.body.focus({preventScroll: true}); display.input.focus();}, 20); }
         else
           { display.input.focus(); }
       }
@@ -8170,11 +10142,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       start = posFromMouse(cm, event, true, true);
       ourIndex = -1;
     } else {
-      var range$$1 = rangeForUnit(cm, start, behavior.unit);
+      var range = rangeForUnit(cm, start, behavior.unit);
       if (behavior.extend)
-        { ourRange = extendRange(ourRange, range$$1.anchor, range$$1.head, behavior.extend); }
+        { ourRange = extendRange(ourRange, range.anchor, range.head, behavior.extend); }
       else
-        { ourRange = range$$1; }
+        { ourRange = range; }
     }
 
     if (!behavior.addNew) {
@@ -8217,14 +10189,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         cm.scrollIntoView(pos);
       } else {
         var oldRange = ourRange;
-        var range$$1 = rangeForUnit(cm, pos, behavior.unit);
+        var range = rangeForUnit(cm, pos, behavior.unit);
         var anchor = oldRange.anchor, head;
-        if (cmp(range$$1.anchor, anchor) > 0) {
-          head = range$$1.head;
-          anchor = minPos(oldRange.from(), range$$1.anchor);
+        if (cmp(range.anchor, anchor) > 0) {
+          head = range.head;
+          anchor = minPos(oldRange.from(), range.anchor);
         } else {
-          head = range$$1.anchor;
-          anchor = maxPos(oldRange.to(), range$$1.head);
+          head = range.anchor;
+          anchor = maxPos(oldRange.to(), range.head);
         }
         var ranges$1 = startSel.ranges.slice(0);
         ranges$1[ourIndex] = bidiSimplify(cm, new Range(clipPos(doc, anchor), head));
@@ -8262,8 +10234,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     function done(e) {
       cm.state.selectingText = false;
       counter = Infinity;
-      e_preventDefault(e);
-      display.input.focus();
+      // If e is null or undefined we interpret this as someone trying
+      // to explicitly cancel the selection rather than the user
+      // letting go of the mouse button.
+      if (e) {
+        e_preventDefault(e);
+        display.input.focus();
+      }
       off(display.wrapper.ownerDocument, "mousemove", move);
       off(display.wrapper.ownerDocument, "mouseup", up);
       doc.history.lastSelOrigin = null;
@@ -8281,17 +10258,17 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   // Used when mouse-selecting to adjust the anchor to the proper side
   // of a bidi jump depending on the visual position of the head.
-  function bidiSimplify(cm, range$$1) {
-    var anchor = range$$1.anchor;
-    var head = range$$1.head;
+  function bidiSimplify(cm, range) {
+    var anchor = range.anchor;
+    var head = range.head;
     var anchorLine = getLine(cm.doc, anchor.line);
-    if (cmp(anchor, head) == 0 && anchor.sticky == head.sticky) { return range$$1 }
+    if (cmp(anchor, head) == 0 && anchor.sticky == head.sticky) { return range }
     var order = getOrder(anchorLine);
-    if (!order) { return range$$1 }
+    if (!order) { return range }
     var index = getBidiPartAt(order, anchor.ch, anchor.sticky), part = order[index];
-    if (part.from != anchor.ch && part.to != anchor.ch) { return range$$1 }
+    if (part.from != anchor.ch && part.to != anchor.ch) { return range }
     var boundary = index + ((part.from == anchor.ch) == (part.level != 1) ? 0 : 1);
-    if (boundary == 0 || boundary == order.length) { return range$$1 }
+    if (boundary == 0 || boundary == order.length) { return range }
 
     // Compute the relative visual position of the head compared to the
     // anchor (<0 is to the left, >0 to the right)
@@ -8310,7 +10287,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var usePart = order[boundary + (leftSide ? -1 : 0)];
     var from = leftSide == (usePart.level == 1);
     var ch = from ? usePart.from : usePart.to, sticky = from ? "after" : "before";
-    return anchor.ch == ch && anchor.sticky == sticky ? range$$1 : new Range(new Pos(anchor.line, ch, sticky), head)
+    return anchor.ch == ch && anchor.sticky == sticky ? range : new Range(new Pos(anchor.line, ch, sticky), head)
   }
 
 
@@ -8323,7 +10300,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       mY = e.touches[0].clientY;
     } else {
       try { mX = e.clientX; mY = e.clientY; }
-      catch(e) { return false }
+      catch(e$1) { return false }
     }
     if (mX >= Math.floor(cm.display.gutters.getBoundingClientRect().right)) { return false }
     if (prevent) { e_preventDefault(e); }
@@ -8334,12 +10311,12 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     if (mY > lineBox.bottom || !hasHandler(cm, type)) { return e_defaultPrevented(e) }
     mY -= lineBox.top - display.viewOffset;
 
-    for (var i = 0; i < cm.options.gutters.length; ++i) {
+    for (var i = 0; i < cm.display.gutterSpecs.length; ++i) {
       var g = display.gutters.childNodes[i];
       if (g && g.getBoundingClientRect().right >= mX) {
         var line = lineAtHeight(cm.doc, mY);
-        var gutter = cm.options.gutters[i];
-        signal(cm, type, cm, line, gutter, e);
+        var gutter = cm.display.gutterSpecs[i];
+        signal(cm, type, cm, line, gutter.className, e);
         return e_defaultPrevented(e)
       }
     }
@@ -8423,7 +10400,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       for (var i = newBreaks.length - 1; i >= 0; i--)
         { replaceRange(cm.doc, val, newBreaks[i], Pos(newBreaks[i].line, newBreaks[i].ch + val.length)); }
     });
-    option("specialChars", /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\ufeff]/g, function (cm, val, old) {
+    option("specialChars", /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200c\u200e\u200f\u2028\u2029\ufeff\ufff9-\ufffc]/g, function (cm, val, old) {
       cm.state.specialChars = new RegExp(val.source + (val.test("\t") ? "" : "|\t"), "g");
       if (old != Init) { cm.refresh(); }
     });
@@ -8433,12 +10410,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       throw new Error("inputStyle can not (yet) be changed in a running editor") // FIXME
     }, true);
     option("spellcheck", false, function (cm, val) { return cm.getInputField().spellcheck = val; }, true);
+    option("autocorrect", false, function (cm, val) { return cm.getInputField().autocorrect = val; }, true);
+    option("autocapitalize", false, function (cm, val) { return cm.getInputField().autocapitalize = val; }, true);
     option("rtlMoveVisually", !windows);
     option("wholeLineUpdateBefore", true);
 
     option("theme", "default", function (cm) {
       themeChanged(cm);
-      guttersChanged(cm);
+      updateGutters(cm);
     }, true);
     option("keyMap", "default", function (cm, val, old) {
       var next = getKeyMap(val);
@@ -8450,9 +10429,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     option("configureMouse", null);
 
     option("lineWrapping", false, wrappingChanged, true);
-    option("gutters", [], function (cm) {
-      setGuttersForLineNumbers(cm.options);
-      guttersChanged(cm);
+    option("gutters", [], function (cm, val) {
+      cm.display.gutterSpecs = getGutters(val, cm.options.lineNumbers);
+      updateGutters(cm);
     }, true);
     option("fixedGutter", true, function (cm, val) {
       cm.display.gutters.style.left = val ? compensateForHScroll(cm.display) + "px" : "0";
@@ -8465,12 +10444,12 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       cm.display.scrollbars.setScrollTop(cm.doc.scrollTop);
       cm.display.scrollbars.setScrollLeft(cm.doc.scrollLeft);
     }, true);
-    option("lineNumbers", false, function (cm) {
-      setGuttersForLineNumbers(cm.options);
-      guttersChanged(cm);
+    option("lineNumbers", false, function (cm, val) {
+      cm.display.gutterSpecs = getGutters(cm.options.gutters, val);
+      updateGutters(cm);
     }, true);
-    option("firstLineNumber", 1, guttersChanged, true);
-    option("lineNumberFormatter", function (integer) { return integer; }, guttersChanged, true);
+    option("firstLineNumber", 1, updateGutters, true);
+    option("lineNumberFormatter", function (integer) { return integer; }, updateGutters, true);
     option("showCursorWhenSelecting", false, updateSelection, true);
 
     option("resetSelectionOnContextMenu", true);
@@ -8485,6 +10464,12 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       }
       cm.display.input.readOnlyChanged(val);
     });
+
+    option("screenReaderLabel", null, function (cm, val) {
+      val = (val === '') ? null : val;
+      cm.display.input.screenReaderLabelChanged(val);
+    });
+
     option("disableInput", false, function (cm, val) {if (!val) { cm.display.input.reset(); }}, true);
     option("dragDrop", true, dragDropChanged);
     option("allowDropFileTypes", null);
@@ -8510,12 +10495,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     option("autofocus", null);
     option("direction", "ltr", function (cm, val) { return cm.doc.setDirection(val); }, true);
     option("phrases", null);
-  }
-
-  function guttersChanged(cm) {
-    updateGutters(cm);
-    regChange(cm);
-    alignHorizontally(cm);
   }
 
   function dragDropChanged(cm, value, old) {
@@ -8557,7 +10536,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     this.options = options = options ? copyObj(options) : {};
     // Determine effective options based on given values and defaults.
     copyObj(defaults, options, false);
-    setGuttersForLineNumbers(options);
 
     var doc = options.value;
     if (typeof doc == "string") { doc = new Doc(doc, options.mode, null, options.lineSeparator, options.direction); }
@@ -8565,9 +10543,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     this.doc = doc;
 
     var input = new CodeMirror.inputStyles[options.inputStyle](this);
-    var display = this.display = new Display(place, doc, input);
+    var display = this.display = new Display(place, doc, input, options);
     display.wrapper.CodeMirror = this;
-    updateGutters(this);
     themeChanged(this);
     if (options.lineWrapping)
       { this.display.wrapper.className += " CodeMirror-wrap"; }
@@ -8581,7 +10558,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       delayingBlurEvent: false,
       focused: false,
       suppressEdits: false, // used to disable editing during key handlers when in readOnly mode
-      pasteIncoming: false, cutIncoming: false, // help recognize paste/cut edits in input.poll
+      pasteIncoming: -1, cutIncoming: -1, // help recognize paste/cut edits in input.poll
       selectingText: false,
       draggingText: false,
       highlight: new Delayed(), // stores highlight worker timeout
@@ -8603,15 +10580,17 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     attachDoc(this, doc);
 
     if ((options.autofocus && !mobile) || this.hasFocus())
-      { setTimeout(bind(onFocus, this), 20); }
+      { setTimeout(function () {
+        if (this$1.hasFocus() && !this$1.state.focused) { onFocus(this$1); }
+      }, 20); }
     else
       { onBlur(this); }
 
     for (var opt in optionHandlers) { if (optionHandlers.hasOwnProperty(opt))
-      { optionHandlers[opt](this$1, options[opt], Init); } }
+      { optionHandlers[opt](this, options[opt], Init); } }
     maybeUpdateLineNumberWidth(this);
     if (options.finishInit) { options.finishInit(this); }
-    for (var i = 0; i < initHooks.length; ++i) { initHooks[i](this$1); }
+    for (var i = 0; i < initHooks.length; ++i) { initHooks[i](this); }
     endOperation(this);
     // Suppress optimizelegibility in Webkit, since it breaks text
     // measuring on line wrapping boundaries.
@@ -8645,6 +10624,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     // which point we can't mess with it anymore. Context menu is
     // handled in onMouseDown for these browsers.
     on(d.scroller, "contextmenu", function (e) { return onContextMenu(cm, e); });
+    on(d.input.getField(), "contextmenu", function (e) {
+      if (!d.scroller.contains(e.target)) { onContextMenu(cm, e); }
+    });
 
     // Used to suppress mouse event handling when a touch happens
     var touchFinished, prevTouch = {end: 0};
@@ -8814,7 +10796,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     cm.display.shift = false;
     if (!sel) { sel = doc.sel; }
 
-    var paste = cm.state.pasteIncoming || origin == "paste";
+    var recent = +new Date - 200;
+    var paste = origin == "paste" || cm.state.pasteIncoming > recent;
     var textLines = splitLinesAuto(inserted), multiPaste = null;
     // When pasting N lines into N selections, insert one line per selection
     if (paste && sel.ranges.length > 1) {
@@ -8829,22 +10812,21 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       }
     }
 
-    var updateInput;
+    var updateInput = cm.curOp.updateInput;
     // Normal behavior is to insert the new text into every selection
     for (var i$1 = sel.ranges.length - 1; i$1 >= 0; i$1--) {
-      var range$$1 = sel.ranges[i$1];
-      var from = range$$1.from(), to = range$$1.to();
-      if (range$$1.empty()) {
+      var range = sel.ranges[i$1];
+      var from = range.from(), to = range.to();
+      if (range.empty()) {
         if (deleted && deleted > 0) // Handle deletion
           { from = Pos(from.line, from.ch - deleted); }
         else if (cm.state.overwrite && !paste) // Handle overwrite
           { to = Pos(to.line, Math.min(getLine(doc, to.line).text.length, to.ch + lst(textLines).length)); }
-        else if (paste && lastCopied && lastCopied.lineWise && lastCopied.text.join("\n") == inserted)
+        else if (paste && lastCopied && lastCopied.lineWise && lastCopied.text.join("\n") == textLines.join("\n"))
           { from = to = Pos(from.line, 0); }
       }
-      updateInput = cm.curOp.updateInput;
       var changeEvent = {from: from, to: to, text: multiPaste ? multiPaste[i$1 % multiPaste.length] : textLines,
-                         origin: origin || (paste ? "paste" : cm.state.cutIncoming ? "cut" : "+input")};
+                         origin: origin || (paste ? "paste" : cm.state.cutIncoming > recent ? "cut" : "+input")};
       makeChange(cm.doc, changeEvent);
       signalLater(cm, "inputRead", cm, changeEvent);
     }
@@ -8852,9 +10834,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       { triggerElectric(cm, inserted); }
 
     ensureCursorVisible(cm);
-    cm.curOp.updateInput = updateInput;
+    if (cm.curOp.updateInput < 2) { cm.curOp.updateInput = updateInput; }
     cm.curOp.typing = true;
-    cm.state.pasteIncoming = cm.state.cutIncoming = false;
+    cm.state.pasteIncoming = cm.state.cutIncoming = -1;
   }
 
   function handlePaste(e, cm) {
@@ -8873,21 +10855,21 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var sel = cm.doc.sel;
 
     for (var i = sel.ranges.length - 1; i >= 0; i--) {
-      var range$$1 = sel.ranges[i];
-      if (range$$1.head.ch > 100 || (i && sel.ranges[i - 1].head.line == range$$1.head.line)) { continue }
-      var mode = cm.getModeAt(range$$1.head);
+      var range = sel.ranges[i];
+      if (range.head.ch > 100 || (i && sel.ranges[i - 1].head.line == range.head.line)) { continue }
+      var mode = cm.getModeAt(range.head);
       var indented = false;
       if (mode.electricChars) {
         for (var j = 0; j < mode.electricChars.length; j++)
           { if (inserted.indexOf(mode.electricChars.charAt(j)) > -1) {
-            indented = indentLine(cm, range$$1.head.line, "smart");
+            indented = indentLine(cm, range.head.line, "smart");
             break
           } }
       } else if (mode.electricInput) {
-        if (mode.electricInput.test(getLine(cm.doc, range$$1.head.line).text.slice(0, range$$1.head.ch)))
-          { indented = indentLine(cm, range$$1.head.line, "smart"); }
+        if (mode.electricInput.test(getLine(cm.doc, range.head.line).text.slice(0, range.head.ch)))
+          { indented = indentLine(cm, range.head.line, "smart"); }
       }
-      if (indented) { signalLater(cm, "electricInput", cm, range$$1.head.line); }
+      if (indented) { signalLater(cm, "electricInput", cm, range.head.line); }
     }
   }
 
@@ -8902,9 +10884,9 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     return {text: text, ranges: ranges}
   }
 
-  function disableBrowserMagic(field, spellcheck) {
-    field.setAttribute("autocorrect", "off");
-    field.setAttribute("autocapitalize", "off");
+  function disableBrowserMagic(field, spellcheck, autocorrect, autocapitalize) {
+    field.setAttribute("autocorrect", autocorrect ? "" : "off");
+    field.setAttribute("autocapitalize", autocapitalize ? "" : "off");
     field.setAttribute("spellcheck", !!spellcheck);
   }
 
@@ -8952,13 +10934,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       getOption: function(option) {return this.options[option]},
       getDoc: function() {return this.doc},
 
-      addKeyMap: function(map$$1, bottom) {
-        this.state.keyMaps[bottom ? "push" : "unshift"](getKeyMap(map$$1));
+      addKeyMap: function(map, bottom) {
+        this.state.keyMaps[bottom ? "push" : "unshift"](getKeyMap(map));
       },
-      removeKeyMap: function(map$$1) {
+      removeKeyMap: function(map) {
         var maps = this.state.keyMaps;
         for (var i = 0; i < maps.length; ++i)
-          { if (maps[i] == map$$1 || maps[i].name == map$$1) {
+          { if (maps[i] == map || maps[i].name == map) {
             maps.splice(i, 1);
             return true
           } }
@@ -8975,15 +10957,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         regChange(this);
       }),
       removeOverlay: methodOp(function(spec) {
-        var this$1 = this;
-
         var overlays = this.state.overlays;
         for (var i = 0; i < overlays.length; ++i) {
           var cur = overlays[i].modeSpec;
           if (cur == spec || typeof spec == "string" && cur.name == spec) {
             overlays.splice(i, 1);
-            this$1.state.modeGen++;
-            regChange(this$1);
+            this.state.modeGen++;
+            regChange(this);
             return
           }
         }
@@ -8997,24 +10977,22 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         if (isLine(this.doc, n)) { indentLine(this, n, dir, aggressive); }
       }),
       indentSelection: methodOp(function(how) {
-        var this$1 = this;
-
         var ranges = this.doc.sel.ranges, end = -1;
         for (var i = 0; i < ranges.length; i++) {
-          var range$$1 = ranges[i];
-          if (!range$$1.empty()) {
-            var from = range$$1.from(), to = range$$1.to();
+          var range = ranges[i];
+          if (!range.empty()) {
+            var from = range.from(), to = range.to();
             var start = Math.max(end, from.line);
-            end = Math.min(this$1.lastLine(), to.line - (to.ch ? 0 : 1)) + 1;
+            end = Math.min(this.lastLine(), to.line - (to.ch ? 0 : 1)) + 1;
             for (var j = start; j < end; ++j)
-              { indentLine(this$1, j, how); }
-            var newRanges = this$1.doc.sel.ranges;
+              { indentLine(this, j, how); }
+            var newRanges = this.doc.sel.ranges;
             if (from.ch == 0 && ranges.length == newRanges.length && newRanges[i].from().ch > 0)
-              { replaceOneSelection(this$1.doc, i, new Range(from, newRanges[i].to()), sel_dontScroll); }
-          } else if (range$$1.head.line > end) {
-            indentLine(this$1, range$$1.head.line, how, true);
-            end = range$$1.head.line;
-            if (i == this$1.doc.sel.primIndex) { ensureCursorVisible(this$1); }
+              { replaceOneSelection(this.doc, i, new Range(from, newRanges[i].to()), sel_dontScroll); }
+          } else if (range.head.line > end) {
+            indentLine(this, range.head.line, how, true);
+            end = range.head.line;
+            if (i == this.doc.sel.primIndex) { ensureCursorVisible(this); }
           }
         }
       }),
@@ -9056,8 +11034,6 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       },
 
       getHelpers: function(pos, type) {
-        var this$1 = this;
-
         var found = [];
         if (!helpers.hasOwnProperty(type)) { return found }
         var help = helpers[type], mode = this.getModeAt(pos);
@@ -9075,7 +11051,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         }
         for (var i$1 = 0; i$1 < help._global.length; i$1++) {
           var cur = help._global[i$1];
-          if (cur.pred(mode, this$1) && indexOf(found, cur.val) == -1)
+          if (cur.pred(mode, this) && indexOf(found, cur.val) == -1)
             { found.push(cur.val); }
         }
         return found
@@ -9088,10 +11064,10 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       },
 
       cursorCoords: function(start, mode) {
-        var pos, range$$1 = this.doc.sel.primary();
-        if (start == null) { pos = range$$1.head; }
+        var pos, range = this.doc.sel.primary();
+        if (start == null) { pos = range.head; }
         else if (typeof start == "object") { pos = clipPos(this.doc, start); }
-        else { pos = start ? range$$1.from() : range$$1.to(); }
+        else { pos = start ? range.from() : range.to(); }
         return cursorCoords(this, pos, mode || "page")
       },
 
@@ -9175,13 +11151,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       triggerElectric: methodOp(function(text) { triggerElectric(this, text); }),
 
       findPosH: function(from, amount, unit, visually) {
-        var this$1 = this;
-
         var dir = 1;
         if (amount < 0) { dir = -1; amount = -amount; }
         var cur = clipPos(this.doc, from);
         for (var i = 0; i < amount; ++i) {
-          cur = findPosH(this$1.doc, cur, dir, unit, visually);
+          cur = findPosH(this.doc, cur, dir, unit, visually);
           if (cur.hitSide) { break }
         }
         return cur
@@ -9190,11 +11164,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       moveH: methodOp(function(dir, unit) {
         var this$1 = this;
 
-        this.extendSelectionsBy(function (range$$1) {
-          if (this$1.display.shift || this$1.doc.extend || range$$1.empty())
-            { return findPosH(this$1.doc, range$$1.head, dir, unit, this$1.options.rtlMoveVisually) }
+        this.extendSelectionsBy(function (range) {
+          if (this$1.display.shift || this$1.doc.extend || range.empty())
+            { return findPosH(this$1.doc, range.head, dir, unit, this$1.options.rtlMoveVisually) }
           else
-            { return dir < 0 ? range$$1.from() : range$$1.to() }
+            { return dir < 0 ? range.from() : range.to() }
         }, sel_move);
       }),
 
@@ -9203,23 +11177,21 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         if (sel.somethingSelected())
           { doc.replaceSelection("", null, "+delete"); }
         else
-          { deleteNearSelection(this, function (range$$1) {
-            var other = findPosH(doc, range$$1.head, dir, unit, false);
-            return dir < 0 ? {from: other, to: range$$1.head} : {from: range$$1.head, to: other}
+          { deleteNearSelection(this, function (range) {
+            var other = findPosH(doc, range.head, dir, unit, false);
+            return dir < 0 ? {from: other, to: range.head} : {from: range.head, to: other}
           }); }
       }),
 
       findPosV: function(from, amount, unit, goalColumn) {
-        var this$1 = this;
-
         var dir = 1, x = goalColumn;
         if (amount < 0) { dir = -1; amount = -amount; }
         var cur = clipPos(this.doc, from);
         for (var i = 0; i < amount; ++i) {
-          var coords = cursorCoords(this$1, cur, "div");
+          var coords = cursorCoords(this, cur, "div");
           if (x == null) { x = coords.left; }
           else { coords.left = x; }
-          cur = findPosV(this$1, coords, dir, unit);
+          cur = findPosV(this, coords, dir, unit);
           if (cur.hitSide) { break }
         }
         return cur
@@ -9230,14 +11202,14 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
         var doc = this.doc, goals = [];
         var collapse = !this.display.shift && !doc.extend && doc.sel.somethingSelected();
-        doc.extendSelectionsBy(function (range$$1) {
+        doc.extendSelectionsBy(function (range) {
           if (collapse)
-            { return dir < 0 ? range$$1.from() : range$$1.to() }
-          var headPos = cursorCoords(this$1, range$$1.head, "div");
-          if (range$$1.goalColumn != null) { headPos.left = range$$1.goalColumn; }
+            { return dir < 0 ? range.from() : range.to() }
+          var headPos = cursorCoords(this$1, range.head, "div");
+          if (range.goalColumn != null) { headPos.left = range.goalColumn; }
           goals.push(headPos.left);
           var pos = findPosV(this$1, headPos, dir, unit);
-          if (unit == "page" && range$$1 == doc.sel.primary())
+          if (unit == "page" && range == doc.sel.primary())
             { addToScrollTop(this$1, charCoords(this$1, pos, "div").top - headPos.top); }
           return pos
         }, sel_move);
@@ -9284,22 +11256,22 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
                 clientHeight: displayHeight(this), clientWidth: displayWidth(this)}
       },
 
-      scrollIntoView: methodOp(function(range$$1, margin) {
-        if (range$$1 == null) {
-          range$$1 = {from: this.doc.sel.primary().head, to: null};
+      scrollIntoView: methodOp(function(range, margin) {
+        if (range == null) {
+          range = {from: this.doc.sel.primary().head, to: null};
           if (margin == null) { margin = this.options.cursorScrollMargin; }
-        } else if (typeof range$$1 == "number") {
-          range$$1 = {from: Pos(range$$1, 0), to: null};
-        } else if (range$$1.from == null) {
-          range$$1 = {from: range$$1, to: null};
+        } else if (typeof range == "number") {
+          range = {from: Pos(range, 0), to: null};
+        } else if (range.from == null) {
+          range = {from: range, to: null};
         }
-        if (!range$$1.to) { range$$1.to = range$$1.from; }
-        range$$1.margin = margin || 0;
+        if (!range.to) { range.to = range.from; }
+        range.margin = margin || 0;
 
-        if (range$$1.from.line != null) {
-          scrollToRange(this, range$$1);
+        if (range.from.line != null) {
+          scrollToRange(this, range);
         } else {
-          scrollToCoordsRange(this, range$$1.from, range$$1.to, range$$1.margin);
+          scrollToCoordsRange(this, range.from, range.to, range.margin);
         }
       }),
 
@@ -9310,11 +11282,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         if (width != null) { this.display.wrapper.style.width = interpret(width); }
         if (height != null) { this.display.wrapper.style.height = interpret(height); }
         if (this.options.lineWrapping) { clearLineMeasurementCache(this); }
-        var lineNo$$1 = this.display.viewFrom;
-        this.doc.iter(lineNo$$1, this.display.viewTo, function (line) {
+        var lineNo = this.display.viewFrom;
+        this.doc.iter(lineNo, this.display.viewTo, function (line) {
           if (line.widgets) { for (var i = 0; i < line.widgets.length; i++)
-            { if (line.widgets[i].noHScroll) { regLineChange(this$1, lineNo$$1, "widget"); break } } }
-          ++lineNo$$1;
+            { if (line.widgets[i].noHScroll) { regLineChange(this$1, lineNo, "widget"); break } } }
+          ++lineNo;
         });
         this.curOp.forceUpdate = true;
         signal(this, "refresh", this);
@@ -9330,8 +11302,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         this.curOp.forceUpdate = true;
         clearCaches(this);
         scrollToCoords(this, this.doc.scrollLeft, this.doc.scrollTop);
-        updateGutterSpace(this);
-        if (oldHeight == null || Math.abs(oldHeight - textHeight(this.display)) > .5)
+        updateGutterSpace(this.display);
+        if (oldHeight == null || Math.abs(oldHeight - textHeight(this.display)) > .5 || this.options.lineWrapping)
           { estimateLineHeights(this); }
         signal(this, "refresh", this);
       }),
@@ -9339,6 +11311,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       swapDoc: methodOp(function(doc) {
         var old = this.doc;
         old.cm = null;
+        // Cancel the current text selection if any (#5821)
+        if (this.state.selectingText) { this.state.selectingText(); }
         attachDoc(this, doc);
         clearCaches(this);
         this.display.input.reset();
@@ -9371,34 +11345,40 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   }
 
   // Used for horizontal relative motion. Dir is -1 or 1 (left or
-  // right), unit can be "char", "column" (like char, but doesn't
-  // cross line boundaries), "word" (across next word), or "group" (to
-  // the start of next group of word or non-word-non-whitespace
-  // chars). The visually param controls whether, in right-to-left
-  // text, direction 1 means to move towards the next index in the
-  // string, or towards the character to the right of the current
-  // position. The resulting position will have a hitSide=true
-  // property if it reached the end of the document.
+  // right), unit can be "codepoint", "char", "column" (like char, but
+  // doesn't cross line boundaries), "word" (across next word), or
+  // "group" (to the start of next group of word or
+  // non-word-non-whitespace chars). The visually param controls
+  // whether, in right-to-left text, direction 1 means to move towards
+  // the next index in the string, or towards the character to the right
+  // of the current position. The resulting position will have a
+  // hitSide=true property if it reached the end of the document.
   function findPosH(doc, pos, dir, unit, visually) {
     var oldPos = pos;
     var origDir = dir;
     var lineObj = getLine(doc, pos.line);
+    var lineDir = visually && doc.direction == "rtl" ? -dir : dir;
     function findNextLine() {
-      var l = pos.line + dir;
+      var l = pos.line + lineDir;
       if (l < doc.first || l >= doc.first + doc.size) { return false }
       pos = new Pos(l, pos.ch, pos.sticky);
       return lineObj = getLine(doc, l)
     }
     function moveOnce(boundToLine) {
       var next;
-      if (visually) {
+      if (unit == "codepoint") {
+        var ch = lineObj.text.charCodeAt(pos.ch + (unit > 0 ? 0 : -1));
+        if (isNaN(ch)) { next = null; }
+        else { next = new Pos(pos.line, Math.max(0, Math.min(lineObj.text.length, pos.ch + dir * (ch >= 0xD800 && ch < 0xDC00 ? 2 : 1))),
+                            -dir); }
+      } else if (visually) {
         next = moveVisually(doc.cm, lineObj, pos, dir);
       } else {
         next = moveLogically(lineObj, pos, dir);
       }
       if (next == null) {
         if (!boundToLine && findNextLine())
-          { pos = endOfLine(visually, doc.cm, lineObj, pos.line, dir); }
+          { pos = endOfLine(visually, doc.cm, lineObj, pos.line, lineDir); }
         else
           { return false }
       } else {
@@ -9407,7 +11387,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       return true
     }
 
-    if (unit == "char") {
+    if (unit == "char" || unit == "codepoint") {
       moveOnce();
     } else if (unit == "column") {
       moveOnce(true);
@@ -9475,10 +11455,18 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
     var input = this, cm = input.cm;
     var div = input.div = display.lineDiv;
-    disableBrowserMagic(div, cm.options.spellcheck);
+    disableBrowserMagic(div, cm.options.spellcheck, cm.options.autocorrect, cm.options.autocapitalize);
+
+    function belongsToInput(e) {
+      for (var t = e.target; t; t = t.parentNode) {
+        if (t == div) { return true }
+        if (/\bCodeMirror-(?:line)?widget\b/.test(t.className)) { break }
+      }
+      return false
+    }
 
     on(div, "paste", function (e) {
-      if (signalDOMEvent(cm, e) || handlePaste(e, cm)) { return }
+      if (!belongsToInput(e) || signalDOMEvent(cm, e) || handlePaste(e, cm)) { return }
       // IE doesn't fire input events, so we schedule a read for the pasted content in this way
       if (ie_version <= 11) { setTimeout(operation(cm, function () { return this$1.updateFromDOM(); }), 20); }
     });
@@ -9503,7 +11491,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     });
 
     function onCopyCut(e) {
-      if (signalDOMEvent(cm, e)) { return }
+      if (!belongsToInput(e) || signalDOMEvent(cm, e)) { return }
       if (cm.somethingSelected()) {
         setLastCopied({lineWise: false, text: cm.getSelections()});
         if (e.type == "cut") { cm.replaceSelection("", null, "cut"); }
@@ -9545,9 +11533,18 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     on(div, "cut", onCopyCut);
   };
 
+  ContentEditableInput.prototype.screenReaderLabelChanged = function (label) {
+    // Label for screenreaders, accessibility
+    if(label) {
+      this.div.setAttribute('aria-label', label);
+    } else {
+      this.div.removeAttribute('aria-label');
+    }
+  };
+
   ContentEditableInput.prototype.prepareSelection = function () {
     var result = prepareSelection(this.cm, false);
-    result.focus = this.cm.state.focused;
+    result.focus = document.activeElement == this.div;
     return result
   };
 
@@ -9583,8 +11580,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     var end = to.line < cm.display.viewTo && posToDOM(cm, to);
     if (!end) {
       var measure = view[view.length - 1].measure;
-      var map$$1 = measure.maps ? measure.maps[measure.maps.length - 1] : measure.map;
-      end = {node: map$$1[map$$1.length - 1], offset: map$$1[map$$1.length - 2] - map$$1[map$$1.length - 3]};
+      var map = measure.maps ? measure.maps[measure.maps.length - 1] : measure.map;
+      end = {node: map[map.length - 1], offset: map[map.length - 2] - map[map.length - 3]};
     }
 
     if (!start || !end) {
@@ -9643,7 +11640,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   ContentEditableInput.prototype.focus = function () {
     if (this.cm.options.readOnly != "nocursor") {
-      if (!this.selectionInEditor())
+      if (!this.selectionInEditor() || document.activeElement != this.div)
         { this.showSelection(this.prepareSelection(), true); }
       this.div.focus();
     }
@@ -9684,7 +11681,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     // Because Android doesn't allow us to actually detect backspace
     // presses in a sane way, this code checks for when that happens
     // and simulates a backspace press in this case.
-    if (android && chrome && this.cm.options.gutters.length && isInGutter(sel.anchorNode)) {
+    if (android && chrome && this.cm.display.gutterSpecs.length && isInGutter(sel.anchorNode)) {
       this.cm.triggerOnKeyDown({type: "keydown", keyCode: 8, preventDefault: Math.abs});
       this.blur();
       this.focus();
@@ -9873,11 +11870,11 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
           addText(cmText);
           return
         }
-        var markerID = node.getAttribute("cm-marker"), range$$1;
+        var markerID = node.getAttribute("cm-marker"), range;
         if (markerID) {
           var found = cm.findMarks(Pos(fromLine, 0), Pos(toLine + 1, 0), recognizeMarker(+markerID));
-          if (found.length && (range$$1 = found[0].find(0)))
-            { addText(getBetween(cm.doc, range$$1.from, range$$1.to).join(lineSep)); }
+          if (found.length && (range = found[0].find(0)))
+            { addText(getBetween(cm.doc, range.from, range.to).join(lineSep)); }
           return
         }
         if (node.getAttribute("contenteditable") == "false") { return }
@@ -9945,13 +11942,13 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
     function find(textNode, topNode, offset) {
       for (var i = -1; i < (maps ? maps.length : 0); i++) {
-        var map$$1 = i < 0 ? measure.map : maps[i];
-        for (var j = 0; j < map$$1.length; j += 3) {
-          var curNode = map$$1[j + 2];
+        var map = i < 0 ? measure.map : maps[i];
+        for (var j = 0; j < map.length; j += 3) {
+          var curNode = map[j + 2];
           if (curNode == textNode || curNode == topNode) {
             var line = lineNo(i < 0 ? lineView.line : lineView.rest[i]);
-            var ch = map$$1[j] + offset;
-            if (offset < 0 || curNode != textNode) { ch = map$$1[j + (offset ? 1 : 0)]; }
+            var ch = map[j] + offset;
+            if (offset < 0 || curNode != textNode) { ch = map[j + (offset ? 1 : 0)]; }
             return Pos(line, ch)
           }
         }
@@ -10015,7 +12012,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     on(te, "paste", function (e) {
       if (signalDOMEvent(cm, e) || handlePaste(e, cm)) { return }
 
-      cm.state.pasteIncoming = true;
+      cm.state.pasteIncoming = +new Date;
       input.fastPoll();
     });
 
@@ -10036,15 +12033,23 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
           selectInput(te);
         }
       }
-      if (e.type == "cut") { cm.state.cutIncoming = true; }
+      if (e.type == "cut") { cm.state.cutIncoming = +new Date; }
     }
     on(te, "cut", prepareCopyCut);
     on(te, "copy", prepareCopyCut);
 
     on(display.scroller, "paste", function (e) {
       if (eventInWidget(display, e) || signalDOMEvent(cm, e)) { return }
-      cm.state.pasteIncoming = true;
-      input.focus();
+      if (!te.dispatchEvent) {
+        cm.state.pasteIncoming = +new Date;
+        input.focus();
+        return
+      }
+
+      // Pass the `paste` event to the textarea so it's handled by its event listener.
+      var event = new Event("paste");
+      event.clipboardData = e.clipboardData;
+      te.dispatchEvent(event);
     });
 
     // Prevent normal selection in the editor (we handle our own)
@@ -10075,6 +12080,15 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     // The semihidden textarea that is focused when the editor is
     // focused, and receives input.
     this.textarea = this.wrapper.firstChild;
+  };
+
+  TextareaInput.prototype.screenReaderLabelChanged = function (label) {
+    // Label for screenreaders, accessibility
+    if(label) {
+      this.textarea.setAttribute('aria-label', label);
+    } else {
+      this.textarea.removeAttribute('aria-label');
+    }
   };
 
   TextareaInput.prototype.prepareSelection = function () {
@@ -10235,6 +12249,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   TextareaInput.prototype.onContextMenu = function (e) {
     var input = this, cm = input.cm, display = cm.display, te = input.textarea;
+    if (input.contextMenuPending) { input.contextMenuPending(); }
     var pos = posFromMouse(cm, e), scrollPos = display.scroller.scrollTop;
     if (!pos || presto) { return } // Opera is difficult.
 
@@ -10245,8 +12260,8 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       { operation(cm, setSelection)(cm.doc, simpleSelection(pos), sel_dontScroll); }
 
     var oldCSS = te.style.cssText, oldWrapperCSS = input.wrapper.style.cssText;
-    input.wrapper.style.cssText = "position: absolute";
-    var wrapperBox = input.wrapper.getBoundingClientRect();
+    var wrapperBox = input.wrapper.offsetParent.getBoundingClientRect();
+    input.wrapper.style.cssText = "position: static";
     te.style.cssText = "position: absolute; width: 30px; height: 30px;\n      top: " + (e.clientY - wrapperBox.top - 5) + "px; left: " + (e.clientX - wrapperBox.left - 5) + "px;\n      z-index: 1000; background: " + (ie ? "rgba(255, 255, 255, .05)" : "transparent") + ";\n      outline: none; border-width: 0; outline: none; overflow: hidden; opacity: .05; filter: alpha(opacity=5);";
     var oldScrollY;
     if (webkit) { oldScrollY = window.scrollY; } // Work around Chrome issue (#2712)
@@ -10255,7 +12270,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
     display.input.reset();
     // Adds "Select all" to context menu in FF
     if (!cm.somethingSelected()) { te.value = input.prevInput = " "; }
-    input.contextMenuPending = true;
+    input.contextMenuPending = rehide;
     display.selForContextMenu = cm.doc.sel;
     clearTimeout(display.detectingSelectAll);
 
@@ -10276,6 +12291,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
       }
     }
     function rehide() {
+      if (input.contextMenuPending != rehide) { return }
       input.contextMenuPending = false;
       input.wrapper.style.cssText = oldWrapperCSS;
       te.style.cssText = oldCSS;
@@ -10315,6 +12331,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
   TextareaInput.prototype.readOnlyChanged = function (val) {
     if (!val) { this.reset(); }
     this.textarea.disabled = val == "nocursor";
+    this.textarea.readOnly = !!val;
   };
 
   TextareaInput.prototype.setUneditable = function () {};
@@ -10366,7 +12383,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
         textarea.style.display = "";
         if (textarea.form) {
           off(textarea.form, "submit", save);
-          if (typeof textarea.form.submit == "function")
+          if (!options.leaveSubmitMethodAlone && typeof textarea.form.submit == "function")
             { textarea.form.submit = realSubmit; }
         }
       };
@@ -10465,7 +12482,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 
   addLegacyProps(CodeMirror);
 
-  CodeMirror.version = "5.42.0";
+  CodeMirror.version = "5.58.2";
 
   return CodeMirror;
 
@@ -10475,7 +12492,7 @@ ___scope___.file("lib/codemirror.js", function(exports, require, module, __filen
 ___scope___.file("lib/codemirror.css", function(exports, require, module, __filename, __dirname){
 
 
-require("fuse-box-css")("codemirror/lib/codemirror.css", "/* BASICS */\n\n.CodeMirror {\n  /* Set height, width, borders, and global font properties here */\n  font-family: monospace;\n  height: 300px;\n  color: black;\n  direction: ltr;\n}\n\n/* PADDING */\n\n.CodeMirror-lines {\n  padding: 4px 0; /* Vertical padding around content */\n}\n.CodeMirror pre {\n  padding: 0 4px; /* Horizontal padding of content */\n}\n\n.CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler {\n  background-color: white; /* The little square between H and V scrollbars */\n}\n\n/* GUTTER */\n\n.CodeMirror-gutters {\n  border-right: 1px solid #ddd;\n  background-color: #f7f7f7;\n  white-space: nowrap;\n}\n.CodeMirror-linenumbers {}\n.CodeMirror-linenumber {\n  padding: 0 3px 0 5px;\n  min-width: 20px;\n  text-align: right;\n  color: #999;\n  white-space: nowrap;\n}\n\n.CodeMirror-guttermarker { color: black; }\n.CodeMirror-guttermarker-subtle { color: #999; }\n\n/* CURSOR */\n\n.CodeMirror-cursor {\n  border-left: 1px solid black;\n  border-right: none;\n  width: 0;\n}\n/* Shown when moving in bi-directional text */\n.CodeMirror div.CodeMirror-secondarycursor {\n  border-left: 1px solid silver;\n}\n.cm-fat-cursor .CodeMirror-cursor {\n  width: auto;\n  border: 0 !important;\n  background: #7e7;\n}\n.cm-fat-cursor div.CodeMirror-cursors {\n  z-index: 1;\n}\n.cm-fat-cursor-mark {\n  background-color: rgba(20, 255, 20, 0.5);\n  -webkit-animation: blink 1.06s steps(1) infinite;\n  -moz-animation: blink 1.06s steps(1) infinite;\n  animation: blink 1.06s steps(1) infinite;\n}\n.cm-animate-fat-cursor {\n  width: auto;\n  border: 0;\n  -webkit-animation: blink 1.06s steps(1) infinite;\n  -moz-animation: blink 1.06s steps(1) infinite;\n  animation: blink 1.06s steps(1) infinite;\n  background-color: #7e7;\n}\n@-moz-keyframes blink {\n  0% {}\n  50% { background-color: transparent; }\n  100% {}\n}\n@-webkit-keyframes blink {\n  0% {}\n  50% { background-color: transparent; }\n  100% {}\n}\n@keyframes blink {\n  0% {}\n  50% { background-color: transparent; }\n  100% {}\n}\n\n/* Can style cursor different in overwrite (non-insert) mode */\n.CodeMirror-overwrite .CodeMirror-cursor {}\n\n.cm-tab { display: inline-block; text-decoration: inherit; }\n\n.CodeMirror-rulers {\n  position: absolute;\n  left: 0; right: 0; top: -50px; bottom: -20px;\n  overflow: hidden;\n}\n.CodeMirror-ruler {\n  border-left: 1px solid #ccc;\n  top: 0; bottom: 0;\n  position: absolute;\n}\n\n/* DEFAULT THEME */\n\n.cm-s-default .cm-header {color: blue;}\n.cm-s-default .cm-quote {color: #090;}\n.cm-negative {color: #d44;}\n.cm-positive {color: #292;}\n.cm-header, .cm-strong {font-weight: bold;}\n.cm-em {font-style: italic;}\n.cm-link {text-decoration: underline;}\n.cm-strikethrough {text-decoration: line-through;}\n\n.cm-s-default .cm-keyword {color: #708;}\n.cm-s-default .cm-atom {color: #219;}\n.cm-s-default .cm-number {color: #164;}\n.cm-s-default .cm-def {color: #00f;}\n.cm-s-default .cm-variable,\n.cm-s-default .cm-punctuation,\n.cm-s-default .cm-property,\n.cm-s-default .cm-operator {}\n.cm-s-default .cm-variable-2 {color: #05a;}\n.cm-s-default .cm-variable-3, .cm-s-default .cm-type {color: #085;}\n.cm-s-default .cm-comment {color: #a50;}\n.cm-s-default .cm-string {color: #a11;}\n.cm-s-default .cm-string-2 {color: #f50;}\n.cm-s-default .cm-meta {color: #555;}\n.cm-s-default .cm-qualifier {color: #555;}\n.cm-s-default .cm-builtin {color: #30a;}\n.cm-s-default .cm-bracket {color: #997;}\n.cm-s-default .cm-tag {color: #170;}\n.cm-s-default .cm-attribute {color: #00c;}\n.cm-s-default .cm-hr {color: #999;}\n.cm-s-default .cm-link {color: #00c;}\n\n.cm-s-default .cm-error {color: #f00;}\n.cm-invalidchar {color: #f00;}\n\n.CodeMirror-composing { border-bottom: 2px solid; }\n\n/* Default styles for common addons */\n\ndiv.CodeMirror span.CodeMirror-matchingbracket {color: #0b0;}\ndiv.CodeMirror span.CodeMirror-nonmatchingbracket {color: #a22;}\n.CodeMirror-matchingtag { background: rgba(255, 150, 0, .3); }\n.CodeMirror-activeline-background {background: #e8f2ff;}\n\n/* STOP */\n\n/* The rest of this file contains styles related to the mechanics of\n   the editor. You probably shouldn't touch them. */\n\n.CodeMirror {\n  position: relative;\n  overflow: hidden;\n  background: white;\n}\n\n.CodeMirror-scroll {\n  overflow: scroll !important; /* Things will break if this is overridden */\n  /* 30px is the magic margin used to hide the element's real scrollbars */\n  /* See overflow: hidden in .CodeMirror */\n  margin-bottom: -30px; margin-right: -30px;\n  padding-bottom: 30px;\n  height: 100%;\n  outline: none; /* Prevent dragging from highlighting the element */\n  position: relative;\n}\n.CodeMirror-sizer {\n  position: relative;\n  border-right: 30px solid transparent;\n}\n\n/* The fake, visible scrollbars. Used to force redraw during scrolling\n   before actual scrolling happens, thus preventing shaking and\n   flickering artifacts. */\n.CodeMirror-vscrollbar, .CodeMirror-hscrollbar, .CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler {\n  position: absolute;\n  z-index: 6;\n  display: none;\n}\n.CodeMirror-vscrollbar {\n  right: 0; top: 0;\n  overflow-x: hidden;\n  overflow-y: scroll;\n}\n.CodeMirror-hscrollbar {\n  bottom: 0; left: 0;\n  overflow-y: hidden;\n  overflow-x: scroll;\n}\n.CodeMirror-scrollbar-filler {\n  right: 0; bottom: 0;\n}\n.CodeMirror-gutter-filler {\n  left: 0; bottom: 0;\n}\n\n.CodeMirror-gutters {\n  position: absolute; left: 0; top: 0;\n  min-height: 100%;\n  z-index: 3;\n}\n.CodeMirror-gutter {\n  white-space: normal;\n  height: 100%;\n  display: inline-block;\n  vertical-align: top;\n  margin-bottom: -30px;\n}\n.CodeMirror-gutter-wrapper {\n  position: absolute;\n  z-index: 4;\n  background: none !important;\n  border: none !important;\n}\n.CodeMirror-gutter-background {\n  position: absolute;\n  top: 0; bottom: 0;\n  z-index: 4;\n}\n.CodeMirror-gutter-elt {\n  position: absolute;\n  cursor: default;\n  z-index: 4;\n}\n.CodeMirror-gutter-wrapper ::selection { background-color: transparent }\n.CodeMirror-gutter-wrapper ::-moz-selection { background-color: transparent }\n\n.CodeMirror-lines {\n  cursor: text;\n  min-height: 1px; /* prevents collapsing before first draw */\n}\n.CodeMirror pre {\n  /* Reset some styles that the rest of the page might have set */\n  -moz-border-radius: 0; -webkit-border-radius: 0; border-radius: 0;\n  border-width: 0;\n  background: transparent;\n  font-family: inherit;\n  font-size: inherit;\n  margin: 0;\n  white-space: pre;\n  word-wrap: normal;\n  line-height: inherit;\n  color: inherit;\n  z-index: 2;\n  position: relative;\n  overflow: visible;\n  -webkit-tap-highlight-color: transparent;\n  -webkit-font-variant-ligatures: contextual;\n  font-variant-ligatures: contextual;\n}\n.CodeMirror-wrap pre {\n  word-wrap: break-word;\n  white-space: pre-wrap;\n  word-break: normal;\n}\n\n.CodeMirror-linebackground {\n  position: absolute;\n  left: 0; right: 0; top: 0; bottom: 0;\n  z-index: 0;\n}\n\n.CodeMirror-linewidget {\n  position: relative;\n  z-index: 2;\n  padding: 0.1px; /* Force widget margins to stay inside of the container */\n}\n\n.CodeMirror-widget {}\n\n.CodeMirror-rtl pre { direction: rtl; }\n\n.CodeMirror-code {\n  outline: none;\n}\n\n/* Force content-box sizing for the elements where we expect it */\n.CodeMirror-scroll,\n.CodeMirror-sizer,\n.CodeMirror-gutter,\n.CodeMirror-gutters,\n.CodeMirror-linenumber {\n  -moz-box-sizing: content-box;\n  box-sizing: content-box;\n}\n\n.CodeMirror-measure {\n  position: absolute;\n  width: 100%;\n  height: 0;\n  overflow: hidden;\n  visibility: hidden;\n}\n\n.CodeMirror-cursor {\n  position: absolute;\n  pointer-events: none;\n}\n.CodeMirror-measure pre { position: static; }\n\ndiv.CodeMirror-cursors {\n  visibility: hidden;\n  position: relative;\n  z-index: 3;\n}\ndiv.CodeMirror-dragcursors {\n  visibility: visible;\n}\n\n.CodeMirror-focused div.CodeMirror-cursors {\n  visibility: visible;\n}\n\n.CodeMirror-selected { background: #d9d9d9; }\n.CodeMirror-focused .CodeMirror-selected { background: #d7d4f0; }\n.CodeMirror-crosshair { cursor: crosshair; }\n.CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: #d7d4f0; }\n.CodeMirror-line::-moz-selection, .CodeMirror-line > span::-moz-selection, .CodeMirror-line > span > span::-moz-selection { background: #d7d4f0; }\n\n.cm-searching {\n  background-color: #ffa;\n  background-color: rgba(255, 255, 0, .4);\n}\n\n/* Used to force a border model for a node */\n.cm-force-border { padding-right: .1px; }\n\n@media print {\n  /* Hide the cursor when printing */\n  .CodeMirror div.CodeMirror-cursors {\n    visibility: hidden;\n  }\n}\n\n/* See issue #2901 */\n.cm-tab-wrap-hack:after { content: ''; }\n\n/* Help users use markselection to safely style text background */\nspan.CodeMirror-selectedtext { background: none; }\n")
+require("fuse-box-css")("codemirror/lib/codemirror.css", "/* BASICS */\n\n.CodeMirror {\n  /* Set height, width, borders, and global font properties here */\n  font-family: monospace;\n  height: 300px;\n  color: black;\n  direction: ltr;\n}\n\n/* PADDING */\n\n.CodeMirror-lines {\n  padding: 4px 0; /* Vertical padding around content */\n}\n.CodeMirror pre.CodeMirror-line,\n.CodeMirror pre.CodeMirror-line-like {\n  padding: 0 4px; /* Horizontal padding of content */\n}\n\n.CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler {\n  background-color: white; /* The little square between H and V scrollbars */\n}\n\n/* GUTTER */\n\n.CodeMirror-gutters {\n  border-right: 1px solid #ddd;\n  background-color: #f7f7f7;\n  white-space: nowrap;\n}\n.CodeMirror-linenumbers {}\n.CodeMirror-linenumber {\n  padding: 0 3px 0 5px;\n  min-width: 20px;\n  text-align: right;\n  color: #999;\n  white-space: nowrap;\n}\n\n.CodeMirror-guttermarker { color: black; }\n.CodeMirror-guttermarker-subtle { color: #999; }\n\n/* CURSOR */\n\n.CodeMirror-cursor {\n  border-left: 1px solid black;\n  border-right: none;\n  width: 0;\n}\n/* Shown when moving in bi-directional text */\n.CodeMirror div.CodeMirror-secondarycursor {\n  border-left: 1px solid silver;\n}\n.cm-fat-cursor .CodeMirror-cursor {\n  width: auto;\n  border: 0 !important;\n  background: #7e7;\n}\n.cm-fat-cursor div.CodeMirror-cursors {\n  z-index: 1;\n}\n.cm-fat-cursor-mark {\n  background-color: rgba(20, 255, 20, 0.5);\n  -webkit-animation: blink 1.06s steps(1) infinite;\n  -moz-animation: blink 1.06s steps(1) infinite;\n  animation: blink 1.06s steps(1) infinite;\n}\n.cm-animate-fat-cursor {\n  width: auto;\n  border: 0;\n  -webkit-animation: blink 1.06s steps(1) infinite;\n  -moz-animation: blink 1.06s steps(1) infinite;\n  animation: blink 1.06s steps(1) infinite;\n  background-color: #7e7;\n}\n@-moz-keyframes blink {\n  0% {}\n  50% { background-color: transparent; }\n  100% {}\n}\n@-webkit-keyframes blink {\n  0% {}\n  50% { background-color: transparent; }\n  100% {}\n}\n@keyframes blink {\n  0% {}\n  50% { background-color: transparent; }\n  100% {}\n}\n\n/* Can style cursor different in overwrite (non-insert) mode */\n.CodeMirror-overwrite .CodeMirror-cursor {}\n\n.cm-tab { display: inline-block; text-decoration: inherit; }\n\n.CodeMirror-rulers {\n  position: absolute;\n  left: 0; right: 0; top: -50px; bottom: 0;\n  overflow: hidden;\n}\n.CodeMirror-ruler {\n  border-left: 1px solid #ccc;\n  top: 0; bottom: 0;\n  position: absolute;\n}\n\n/* DEFAULT THEME */\n\n.cm-s-default .cm-header {color: blue;}\n.cm-s-default .cm-quote {color: #090;}\n.cm-negative {color: #d44;}\n.cm-positive {color: #292;}\n.cm-header, .cm-strong {font-weight: bold;}\n.cm-em {font-style: italic;}\n.cm-link {text-decoration: underline;}\n.cm-strikethrough {text-decoration: line-through;}\n\n.cm-s-default .cm-keyword {color: #708;}\n.cm-s-default .cm-atom {color: #219;}\n.cm-s-default .cm-number {color: #164;}\n.cm-s-default .cm-def {color: #00f;}\n.cm-s-default .cm-variable,\n.cm-s-default .cm-punctuation,\n.cm-s-default .cm-property,\n.cm-s-default .cm-operator {}\n.cm-s-default .cm-variable-2 {color: #05a;}\n.cm-s-default .cm-variable-3, .cm-s-default .cm-type {color: #085;}\n.cm-s-default .cm-comment {color: #a50;}\n.cm-s-default .cm-string {color: #a11;}\n.cm-s-default .cm-string-2 {color: #f50;}\n.cm-s-default .cm-meta {color: #555;}\n.cm-s-default .cm-qualifier {color: #555;}\n.cm-s-default .cm-builtin {color: #30a;}\n.cm-s-default .cm-bracket {color: #997;}\n.cm-s-default .cm-tag {color: #170;}\n.cm-s-default .cm-attribute {color: #00c;}\n.cm-s-default .cm-hr {color: #999;}\n.cm-s-default .cm-link {color: #00c;}\n\n.cm-s-default .cm-error {color: #f00;}\n.cm-invalidchar {color: #f00;}\n\n.CodeMirror-composing { border-bottom: 2px solid; }\n\n/* Default styles for common addons */\n\ndiv.CodeMirror span.CodeMirror-matchingbracket {color: #0b0;}\ndiv.CodeMirror span.CodeMirror-nonmatchingbracket {color: #a22;}\n.CodeMirror-matchingtag { background: rgba(255, 150, 0, .3); }\n.CodeMirror-activeline-background {background: #e8f2ff;}\n\n/* STOP */\n\n/* The rest of this file contains styles related to the mechanics of\n   the editor. You probably shouldn't touch them. */\n\n.CodeMirror {\n  position: relative;\n  overflow: hidden;\n  background: white;\n}\n\n.CodeMirror-scroll {\n  overflow: scroll !important; /* Things will break if this is overridden */\n  /* 50px is the magic margin used to hide the element's real scrollbars */\n  /* See overflow: hidden in .CodeMirror */\n  margin-bottom: -50px; margin-right: -50px;\n  padding-bottom: 50px;\n  height: 100%;\n  outline: none; /* Prevent dragging from highlighting the element */\n  position: relative;\n}\n.CodeMirror-sizer {\n  position: relative;\n  border-right: 50px solid transparent;\n}\n\n/* The fake, visible scrollbars. Used to force redraw during scrolling\n   before actual scrolling happens, thus preventing shaking and\n   flickering artifacts. */\n.CodeMirror-vscrollbar, .CodeMirror-hscrollbar, .CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler {\n  position: absolute;\n  z-index: 6;\n  display: none;\n  outline: none;\n}\n.CodeMirror-vscrollbar {\n  right: 0; top: 0;\n  overflow-x: hidden;\n  overflow-y: scroll;\n}\n.CodeMirror-hscrollbar {\n  bottom: 0; left: 0;\n  overflow-y: hidden;\n  overflow-x: scroll;\n}\n.CodeMirror-scrollbar-filler {\n  right: 0; bottom: 0;\n}\n.CodeMirror-gutter-filler {\n  left: 0; bottom: 0;\n}\n\n.CodeMirror-gutters {\n  position: absolute; left: 0; top: 0;\n  min-height: 100%;\n  z-index: 3;\n}\n.CodeMirror-gutter {\n  white-space: normal;\n  height: 100%;\n  display: inline-block;\n  vertical-align: top;\n  margin-bottom: -50px;\n}\n.CodeMirror-gutter-wrapper {\n  position: absolute;\n  z-index: 4;\n  background: none !important;\n  border: none !important;\n}\n.CodeMirror-gutter-background {\n  position: absolute;\n  top: 0; bottom: 0;\n  z-index: 4;\n}\n.CodeMirror-gutter-elt {\n  position: absolute;\n  cursor: default;\n  z-index: 4;\n}\n.CodeMirror-gutter-wrapper ::selection { background-color: transparent }\n.CodeMirror-gutter-wrapper ::-moz-selection { background-color: transparent }\n\n.CodeMirror-lines {\n  cursor: text;\n  min-height: 1px; /* prevents collapsing before first draw */\n}\n.CodeMirror pre.CodeMirror-line,\n.CodeMirror pre.CodeMirror-line-like {\n  /* Reset some styles that the rest of the page might have set */\n  -moz-border-radius: 0; -webkit-border-radius: 0; border-radius: 0;\n  border-width: 0;\n  background: transparent;\n  font-family: inherit;\n  font-size: inherit;\n  margin: 0;\n  white-space: pre;\n  word-wrap: normal;\n  line-height: inherit;\n  color: inherit;\n  z-index: 2;\n  position: relative;\n  overflow: visible;\n  -webkit-tap-highlight-color: transparent;\n  -webkit-font-variant-ligatures: contextual;\n  font-variant-ligatures: contextual;\n}\n.CodeMirror-wrap pre.CodeMirror-line,\n.CodeMirror-wrap pre.CodeMirror-line-like {\n  word-wrap: break-word;\n  white-space: pre-wrap;\n  word-break: normal;\n}\n\n.CodeMirror-linebackground {\n  position: absolute;\n  left: 0; right: 0; top: 0; bottom: 0;\n  z-index: 0;\n}\n\n.CodeMirror-linewidget {\n  position: relative;\n  z-index: 2;\n  padding: 0.1px; /* Force widget margins to stay inside of the container */\n}\n\n.CodeMirror-widget {}\n\n.CodeMirror-rtl pre { direction: rtl; }\n\n.CodeMirror-code {\n  outline: none;\n}\n\n/* Force content-box sizing for the elements where we expect it */\n.CodeMirror-scroll,\n.CodeMirror-sizer,\n.CodeMirror-gutter,\n.CodeMirror-gutters,\n.CodeMirror-linenumber {\n  -moz-box-sizing: content-box;\n  box-sizing: content-box;\n}\n\n.CodeMirror-measure {\n  position: absolute;\n  width: 100%;\n  height: 0;\n  overflow: hidden;\n  visibility: hidden;\n}\n\n.CodeMirror-cursor {\n  position: absolute;\n  pointer-events: none;\n}\n.CodeMirror-measure pre { position: static; }\n\ndiv.CodeMirror-cursors {\n  visibility: hidden;\n  position: relative;\n  z-index: 3;\n}\ndiv.CodeMirror-dragcursors {\n  visibility: visible;\n}\n\n.CodeMirror-focused div.CodeMirror-cursors {\n  visibility: visible;\n}\n\n.CodeMirror-selected { background: #d9d9d9; }\n.CodeMirror-focused .CodeMirror-selected { background: #d7d4f0; }\n.CodeMirror-crosshair { cursor: crosshair; }\n.CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: #d7d4f0; }\n.CodeMirror-line::-moz-selection, .CodeMirror-line > span::-moz-selection, .CodeMirror-line > span > span::-moz-selection { background: #d7d4f0; }\n\n.cm-searching {\n  background-color: #ffa;\n  background-color: rgba(255, 255, 0, .4);\n}\n\n/* Used to force a border model for a node */\n.cm-force-border { padding-right: .1px; }\n\n@media print {\n  /* Hide the cursor when printing */\n  .CodeMirror div.CodeMirror-cursors {\n    visibility: hidden;\n  }\n}\n\n/* See issue #2901 */\n.cm-tab-wrap-hack:after { content: ''; }\n\n/* Help users use markselection to safely style text background */\nspan.CodeMirror-selectedtext { background: none; }\n")
 });
 ___scope___.file("addon/lint/lint.js", function(exports, require, module, __filename, __dirname){
 
@@ -10493,11 +12510,14 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
   "use strict";
   var GUTTER_ID = "CodeMirror-lint-markers";
 
-  function showTooltip(e, content) {
+  function showTooltip(cm, e, content) {
     var tt = document.createElement("div");
-    tt.className = "CodeMirror-lint-tooltip";
+    tt.className = "CodeMirror-lint-tooltip cm-s-" + cm.options.theme;
     tt.appendChild(content.cloneNode(true));
-    document.body.appendChild(tt);
+    if (cm.state.lint.options.selfContain)
+      cm.getWrapperElement().appendChild(tt);
+    else
+      document.body.appendChild(tt);
 
     function position(e) {
       if (!tt.parentNode) return CodeMirror.off(document, "mousemove", position);
@@ -10519,8 +12539,8 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
     setTimeout(function() { rm(tt); }, 600);
   }
 
-  function showTooltipFor(e, content, node) {
-    var tooltip = showTooltip(e, content);
+  function showTooltipFor(cm, e, content, node) {
+    var tooltip = showTooltip(cm, e, content);
     function hide() {
       CodeMirror.off(node, "mouseout", hide);
       if (tooltip) { hideTooltip(tooltip); tooltip = null; }
@@ -10559,16 +12579,16 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
     state.marked.length = 0;
   }
 
-  function makeMarker(labels, severity, multiple, tooltips) {
+  function makeMarker(cm, labels, severity, multiple, tooltips) {
     var marker = document.createElement("div"), inner = marker;
-    marker.className = "CodeMirror-lint-marker-" + severity;
+    marker.className = "CodeMirror-lint-marker CodeMirror-lint-marker-" + severity;
     if (multiple) {
       inner = marker.appendChild(document.createElement("div"));
-      inner.className = "CodeMirror-lint-marker-multiple";
+      inner.className = "CodeMirror-lint-marker CodeMirror-lint-marker-multiple";
     }
 
     if (tooltips != false) CodeMirror.on(inner, "mouseover", function(e) {
-      showTooltipFor(e, labels, inner);
+      showTooltipFor(cm, e, labels, inner);
     });
 
     return marker;
@@ -10592,11 +12612,11 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
     var severity = ann.severity;
     if (!severity) severity = "error";
     var tip = document.createElement("div");
-    tip.className = "CodeMirror-lint-message-" + severity;
+    tip.className = "CodeMirror-lint-message CodeMirror-lint-message-" + severity;
     if (typeof ann.messageHTML != 'undefined') {
-        tip.innerHTML = ann.messageHTML;
+      tip.innerHTML = ann.messageHTML;
     } else {
-        tip.appendChild(document.createTextNode(ann.message));
+      tip.appendChild(document.createTextNode(ann.message));
     }
     return tip;
   }
@@ -10661,13 +12681,13 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
         if (state.hasGutter) tipLabel.appendChild(annotationTooltip(ann));
 
         if (ann.to) state.marked.push(cm.markText(ann.from, ann.to, {
-          className: "CodeMirror-lint-mark-" + severity,
+          className: "CodeMirror-lint-mark CodeMirror-lint-mark-" + severity,
           __annotation: ann
         }));
       }
 
       if (state.hasGutter)
-        cm.setGutterMarker(line, GUTTER_ID, makeMarker(tipLabel, maxSeverity, anns.length > 1,
+        cm.setGutterMarker(line, GUTTER_ID, makeMarker(cm, tipLabel, maxSeverity, anns.length > 1,
                                                        state.options.tooltips));
     }
     if (options.onUpdateLinting) options.onUpdateLinting(annotationsNotSorted, annotations, cm);
@@ -10680,14 +12700,14 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
     state.timeout = setTimeout(function(){startLinting(cm);}, state.options.delay || 500);
   }
 
-  function popupTooltips(annotations, e) {
+  function popupTooltips(cm, annotations, e) {
     var target = e.target || e.srcElement;
     var tooltip = document.createDocumentFragment();
     for (var i = 0; i < annotations.length; i++) {
       var ann = annotations[i];
       tooltip.appendChild(annotationTooltip(ann));
     }
-    showTooltipFor(e, tooltip, target);
+    showTooltipFor(cm, e, tooltip, target);
   }
 
   function onMouseOver(cm, e) {
@@ -10701,7 +12721,7 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
       var ann = spans[i].__annotation;
       if (ann) annotations.push(ann);
     }
-    if (annotations.length) popupTooltips(annotations, e);
+    if (annotations.length) popupTooltips(cm, annotations, e);
   }
 
   CodeMirror.defineOption("lint", false, function(cm, val, old) {
@@ -10736,9 +12756,123 @@ ___scope___.file("addon/lint/lint.js", function(exports, require, module, __file
 ___scope___.file("addon/lint/lint.css", function(exports, require, module, __filename, __dirname){
 
 
-require("fuse-box-css")("codemirror/addon/lint/lint.css", "/* The lint marker gutter */\n.CodeMirror-lint-markers {\n  width: 16px;\n}\n\n.CodeMirror-lint-tooltip {\n  background-color: #ffd;\n  border: 1px solid black;\n  border-radius: 4px 4px 4px 4px;\n  color: black;\n  font-family: monospace;\n  font-size: 10pt;\n  overflow: hidden;\n  padding: 2px 5px;\n  position: fixed;\n  white-space: pre;\n  white-space: pre-wrap;\n  z-index: 100;\n  max-width: 600px;\n  opacity: 0;\n  transition: opacity .4s;\n  -moz-transition: opacity .4s;\n  -webkit-transition: opacity .4s;\n  -o-transition: opacity .4s;\n  -ms-transition: opacity .4s;\n}\n\n.CodeMirror-lint-mark-error, .CodeMirror-lint-mark-warning {\n  background-position: left bottom;\n  background-repeat: repeat-x;\n}\n\n.CodeMirror-lint-mark-error {\n  background-image:\n  url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAAXNSR0IArs4c6QAAAAZiS0dEAP8A/wD/oL2nkwAAAAlwSFlzAAALEwAACxMBAJqcGAAAAAd0SU1FB9sJDw4cOCW1/KIAAAAZdEVYdENvbW1lbnQAQ3JlYXRlZCB3aXRoIEdJTVBXgQ4XAAAAHElEQVQI12NggIL/DAz/GdA5/xkY/qPKMDAwAADLZwf5rvm+LQAAAABJRU5ErkJggg==\")\n  ;\n}\n\n.CodeMirror-lint-mark-warning {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAAXNSR0IArs4c6QAAAAZiS0dEAP8A/wD/oL2nkwAAAAlwSFlzAAALEwAACxMBAJqcGAAAAAd0SU1FB9sJFhQXEbhTg7YAAAAZdEVYdENvbW1lbnQAQ3JlYXRlZCB3aXRoIEdJTVBXgQ4XAAAAMklEQVQI12NkgIIvJ3QXMjAwdDN+OaEbysDA4MPAwNDNwMCwiOHLCd1zX07o6kBVGQEAKBANtobskNMAAAAASUVORK5CYII=\");\n}\n\n.CodeMirror-lint-marker-error, .CodeMirror-lint-marker-warning {\n  background-position: center center;\n  background-repeat: no-repeat;\n  cursor: pointer;\n  display: inline-block;\n  height: 16px;\n  width: 16px;\n  vertical-align: middle;\n  position: relative;\n}\n\n.CodeMirror-lint-message-error, .CodeMirror-lint-message-warning {\n  padding-left: 18px;\n  background-position: top left;\n  background-repeat: no-repeat;\n}\n\n.CodeMirror-lint-marker-error, .CodeMirror-lint-message-error {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAHlBMVEW7AAC7AACxAAC7AAC7AAAAAAC4AAC5AAD///+7AAAUdclpAAAABnRSTlMXnORSiwCK0ZKSAAAATUlEQVR42mWPOQ7AQAgDuQLx/z8csYRmPRIFIwRGnosRrpamvkKi0FTIiMASR3hhKW+hAN6/tIWhu9PDWiTGNEkTtIOucA5Oyr9ckPgAWm0GPBog6v4AAAAASUVORK5CYII=\");\n}\n\n.CodeMirror-lint-marker-warning, .CodeMirror-lint-message-warning {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAANlBMVEX/uwDvrwD/uwD/uwD/uwD/uwD/uwD/uwD/uwD6twD/uwAAAADurwD2tQD7uAD+ugAAAAD/uwDhmeTRAAAADHRSTlMJ8mN1EYcbmiixgACm7WbuAAAAVklEQVR42n3PUQqAIBBFUU1LLc3u/jdbOJoW1P08DA9Gba8+YWJ6gNJoNYIBzAA2chBth5kLmG9YUoG0NHAUwFXwO9LuBQL1giCQb8gC9Oro2vp5rncCIY8L8uEx5ZkAAAAASUVORK5CYII=\");\n}\n\n.CodeMirror-lint-marker-multiple {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAMAAADzjKfhAAAACVBMVEUAAAAAAAC/v7914kyHAAAAAXRSTlMAQObYZgAAACNJREFUeNo1ioEJAAAIwmz/H90iFFSGJgFMe3gaLZ0od+9/AQZ0ADosbYraAAAAAElFTkSuQmCC\");\n  background-repeat: no-repeat;\n  background-position: right bottom;\n  width: 100%; height: 100%;\n}\n")
+require("fuse-box-css")("codemirror/addon/lint/lint.css", "/* The lint marker gutter */\n.CodeMirror-lint-markers {\n  width: 16px;\n}\n\n.CodeMirror-lint-tooltip {\n  background-color: #ffd;\n  border: 1px solid black;\n  border-radius: 4px 4px 4px 4px;\n  color: black;\n  font-family: monospace;\n  font-size: 10pt;\n  overflow: hidden;\n  padding: 2px 5px;\n  position: fixed;\n  white-space: pre;\n  white-space: pre-wrap;\n  z-index: 100;\n  max-width: 600px;\n  opacity: 0;\n  transition: opacity .4s;\n  -moz-transition: opacity .4s;\n  -webkit-transition: opacity .4s;\n  -o-transition: opacity .4s;\n  -ms-transition: opacity .4s;\n}\n\n.CodeMirror-lint-mark {\n  background-position: left bottom;\n  background-repeat: repeat-x;\n}\n\n.CodeMirror-lint-mark-warning {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAAXNSR0IArs4c6QAAAAZiS0dEAP8A/wD/oL2nkwAAAAlwSFlzAAALEwAACxMBAJqcGAAAAAd0SU1FB9sJFhQXEbhTg7YAAAAZdEVYdENvbW1lbnQAQ3JlYXRlZCB3aXRoIEdJTVBXgQ4XAAAAMklEQVQI12NkgIIvJ3QXMjAwdDN+OaEbysDA4MPAwNDNwMCwiOHLCd1zX07o6kBVGQEAKBANtobskNMAAAAASUVORK5CYII=\");\n}\n\n.CodeMirror-lint-mark-error {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAAXNSR0IArs4c6QAAAAZiS0dEAP8A/wD/oL2nkwAAAAlwSFlzAAALEwAACxMBAJqcGAAAAAd0SU1FB9sJDw4cOCW1/KIAAAAZdEVYdENvbW1lbnQAQ3JlYXRlZCB3aXRoIEdJTVBXgQ4XAAAAHElEQVQI12NggIL/DAz/GdA5/xkY/qPKMDAwAADLZwf5rvm+LQAAAABJRU5ErkJggg==\");\n}\n\n.CodeMirror-lint-marker {\n  background-position: center center;\n  background-repeat: no-repeat;\n  cursor: pointer;\n  display: inline-block;\n  height: 16px;\n  width: 16px;\n  vertical-align: middle;\n  position: relative;\n}\n\n.CodeMirror-lint-message {\n  padding-left: 18px;\n  background-position: top left;\n  background-repeat: no-repeat;\n}\n\n.CodeMirror-lint-marker-warning, .CodeMirror-lint-message-warning {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAANlBMVEX/uwDvrwD/uwD/uwD/uwD/uwD/uwD/uwD/uwD6twD/uwAAAADurwD2tQD7uAD+ugAAAAD/uwDhmeTRAAAADHRSTlMJ8mN1EYcbmiixgACm7WbuAAAAVklEQVR42n3PUQqAIBBFUU1LLc3u/jdbOJoW1P08DA9Gba8+YWJ6gNJoNYIBzAA2chBth5kLmG9YUoG0NHAUwFXwO9LuBQL1giCQb8gC9Oro2vp5rncCIY8L8uEx5ZkAAAAASUVORK5CYII=\");\n}\n\n.CodeMirror-lint-marker-error, .CodeMirror-lint-message-error {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAHlBMVEW7AAC7AACxAAC7AAC7AAAAAAC4AAC5AAD///+7AAAUdclpAAAABnRSTlMXnORSiwCK0ZKSAAAATUlEQVR42mWPOQ7AQAgDuQLx/z8csYRmPRIFIwRGnosRrpamvkKi0FTIiMASR3hhKW+hAN6/tIWhu9PDWiTGNEkTtIOucA5Oyr9ckPgAWm0GPBog6v4AAAAASUVORK5CYII=\");\n}\n\n.CodeMirror-lint-marker-multiple {\n  background-image: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAMAAADzjKfhAAAACVBMVEUAAAAAAAC/v7914kyHAAAAAXRSTlMAQObYZgAAACNJREFUeNo1ioEJAAAIwmz/H90iFFSGJgFMe3gaLZ0od+9/AQZ0ADosbYraAAAAAElFTkSuQmCC\");\n  background-repeat: no-repeat;\n  background-position: right bottom;\n  width: 100%; height: 100%;\n}\n")
 });
 return ___scope___.entry = "lib/codemirror.js";
+});
+FuseBox.pkg("core-util-is", {}, function(___scope___){
+___scope___.file("lib/util.js", function(exports, require, module, __filename, __dirname){
+/* fuse:injection: */ var Buffer = require("buffer").Buffer;
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+
+function isArray(arg) {
+  if (Array.isArray) {
+    return Array.isArray(arg);
+  }
+  return objectToString(arg) === '[object Array]';
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = Buffer.isBuffer;
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+});
+return ___scope___.entry = "lib/util.js";
 });
 FuseBox.pkg("events", {}, function(___scope___){
 ___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
@@ -11067,6 +13201,14 @@ module.exports = cssHandler;
 });
 return ___scope___.entry = "index.js";
 });
+FuseBox.pkg("fuse-empty-package", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+module.exports = undefined;
+
+});
+return ___scope___.entry = "index.js";
+});
 FuseBox.pkg("fusebox-hot-reload", {}, function(___scope___){
 ___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
 
@@ -11299,17 +13441,3272 @@ exports.SocketClient = SocketClient;
 });
 return ___scope___.entry = "index.js";
 });
-FuseBox.pkg("stream", {}, function(___scope___){
+FuseBox.pkg("ieee754", {}, function(___scope___){
 ___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
 
-if (FuseBox.isServer) {
-	module.exports = global.require("stream");
-} else {
-	module.exports = function() {};
+/*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> */
+exports.read = function (buffer, offset, isLE, mLen, nBytes) {
+  var e, m
+  var eLen = (nBytes * 8) - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var nBits = -7
+  var i = isLE ? (nBytes - 1) : 0
+  var d = isLE ? -1 : 1
+  var s = buffer[offset + i]
+
+  i += d
+
+  e = s & ((1 << (-nBits)) - 1)
+  s >>= (-nBits)
+  nBits += eLen
+  for (; nBits > 0; e = (e * 256) + buffer[offset + i], i += d, nBits -= 8) {}
+
+  m = e & ((1 << (-nBits)) - 1)
+  e >>= (-nBits)
+  nBits += mLen
+  for (; nBits > 0; m = (m * 256) + buffer[offset + i], i += d, nBits -= 8) {}
+
+  if (e === 0) {
+    e = 1 - eBias
+  } else if (e === eMax) {
+    return m ? NaN : ((s ? -1 : 1) * Infinity)
+  } else {
+    m = m + Math.pow(2, mLen)
+    e = e - eBias
+  }
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen)
+}
+
+exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
+  var e, m, c
+  var eLen = (nBytes * 8) - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0)
+  var i = isLE ? 0 : (nBytes - 1)
+  var d = isLE ? 1 : -1
+  var s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0
+
+  value = Math.abs(value)
+
+  if (isNaN(value) || value === Infinity) {
+    m = isNaN(value) ? 1 : 0
+    e = eMax
+  } else {
+    e = Math.floor(Math.log(value) / Math.LN2)
+    if (value * (c = Math.pow(2, -e)) < 1) {
+      e--
+      c *= 2
+    }
+    if (e + eBias >= 1) {
+      value += rt / c
+    } else {
+      value += rt * Math.pow(2, 1 - eBias)
+    }
+    if (value * c >= 2) {
+      e++
+      c /= 2
+    }
+
+    if (e + eBias >= eMax) {
+      m = 0
+      e = eMax
+    } else if (e + eBias >= 1) {
+      m = ((value * c) - 1) * Math.pow(2, mLen)
+      e = e + eBias
+    } else {
+      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen)
+      e = 0
+    }
+  }
+
+  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8) {}
+
+  e = (e << mLen) | m
+  eLen += mLen
+  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8) {}
+
+  buffer[offset + i - d] |= s * 128
 }
 
 });
 return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("inherits", {}, function(___scope___){
+___scope___.file("inherits_browser.js", function(exports, require, module, __filename, __dirname){
+
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    if (superCtor) {
+      ctor.super_ = superCtor
+      ctor.prototype = Object.create(superCtor.prototype, {
+        constructor: {
+          value: ctor,
+          enumerable: false,
+          writable: true,
+          configurable: true
+        }
+      })
+    }
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    if (superCtor) {
+      ctor.super_ = superCtor
+      var TempCtor = function () {}
+      TempCtor.prototype = superCtor.prototype
+      ctor.prototype = new TempCtor()
+      ctor.prototype.constructor = ctor
+    }
+  }
+}
+
+});
+return ___scope___.entry = "inherits_browser.js";
+});
+FuseBox.pkg("isarray", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+var toString = {}.toString;
+
+module.exports = Array.isArray || function (arr) {
+  return toString.call(arr) == '[object Array]';
+};
+
+});
+return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("process-nextick-args", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+/* fuse:injection: */ var process = require("process");
+'use strict';
+
+if (typeof process === 'undefined' ||
+    !process.version ||
+    process.version.indexOf('v0.') === 0 ||
+    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
+  module.exports = { nextTick: nextTick };
+} else {
+  module.exports = process
+}
+
+function nextTick(fn, arg1, arg2, arg3) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('"callback" argument must be a function');
+  }
+  var len = arguments.length;
+  var args, i;
+  switch (len) {
+  case 0:
+  case 1:
+    return process.nextTick(fn);
+  case 2:
+    return process.nextTick(function afterTickOne() {
+      fn.call(null, arg1);
+    });
+  case 3:
+    return process.nextTick(function afterTickTwo() {
+      fn.call(null, arg1, arg2);
+    });
+  case 4:
+    return process.nextTick(function afterTickThree() {
+      fn.call(null, arg1, arg2, arg3);
+    });
+  default:
+    args = new Array(len - 1);
+    i = 0;
+    while (i < args.length) {
+      args[i++] = arguments[i];
+    }
+    return process.nextTick(function afterTick() {
+      fn.apply(null, args);
+    });
+  }
+}
+
+
+});
+return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("process", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+// From https://github.com/defunctzombie/node-process/blob/master/browser.js
+// shim for using process in browser
+if (FuseBox.isServer) {
+	if (typeof __process_env__ !== "undefined") {
+		Object.assign(global.process.env, __process_env__);
+	}
+	module.exports = global.process;
+} else {
+	// Object assign polyfill
+	if (typeof Object.assign != "function") {
+		Object.assign = function(target, varArgs) {
+			// .length of function is 2
+			"use strict";
+			if (target == null) {
+				// TypeError if undefined or null
+				throw new TypeError("Cannot convert undefined or null to object");
+			}
+
+			var to = Object(target);
+
+			for (var index = 1; index < arguments.length; index++) {
+				var nextSource = arguments[index];
+
+				if (nextSource != null) {
+					// Skip over if undefined or null
+					for (var nextKey in nextSource) {
+						// Avoid bugs when hasOwnProperty is shadowed
+						if (Object.prototype.hasOwnProperty.call(nextSource, nextKey)) {
+							to[nextKey] = nextSource[nextKey];
+						}
+					}
+				}
+			}
+			return to;
+		};
+	}
+
+	var productionEnv = false; //require('@system-env').production;
+
+	var process = (module.exports = {});
+	var queue = [];
+	var draining = false;
+	var currentQueue;
+	var queueIndex = -1;
+
+	function cleanUpNextTick() {
+		draining = false;
+		if (currentQueue.length) {
+			queue = currentQueue.concat(queue);
+		} else {
+			queueIndex = -1;
+		}
+		if (queue.length) {
+			drainQueue();
+		}
+	}
+
+	function drainQueue() {
+		if (draining) {
+			return;
+		}
+		var timeout = setTimeout(cleanUpNextTick);
+		draining = true;
+
+		var len = queue.length;
+		while (len) {
+			currentQueue = queue;
+			queue = [];
+			while (++queueIndex < len) {
+				if (currentQueue) {
+					currentQueue[queueIndex].run();
+				}
+			}
+			queueIndex = -1;
+			len = queue.length;
+		}
+		currentQueue = null;
+		draining = false;
+		clearTimeout(timeout);
+	}
+
+	process.nextTick = function(fun) {
+		var args = new Array(arguments.length - 1);
+		if (arguments.length > 1) {
+			for (var i = 1; i < arguments.length; i++) {
+				args[i - 1] = arguments[i];
+			}
+		}
+		queue.push(new Item(fun, args));
+		if (queue.length === 1 && !draining) {
+			setTimeout(drainQueue, 0);
+		}
+	};
+
+	// v8 likes predictible objects
+	function Item(fun, array) {
+		this.fun = fun;
+		this.array = array;
+	}
+	Item.prototype.run = function() {
+		this.fun.apply(null, this.array);
+	};
+	process.title = "browser";
+	process.browser = true;
+	process.env = {
+		NODE_ENV: productionEnv ? "production" : "development"
+	};
+	if (typeof __process_env__ !== "undefined") {
+		Object.assign(process.env, __process_env__);
+	}
+	process.argv = [];
+	process.version = ""; // empty string to avoid regexp issues
+	process.versions = {};
+
+	function noop() {}
+
+	process.on = noop;
+	process.addListener = noop;
+	process.once = noop;
+	process.off = noop;
+	process.removeListener = noop;
+	process.removeAllListeners = noop;
+	process.emit = noop;
+
+	process.binding = function(name) {
+		throw new Error("process.binding is not supported");
+	};
+
+	process.cwd = function() {
+		return "/";
+	};
+	process.chdir = function(dir) {
+		throw new Error("process.chdir is not supported");
+	};
+	process.umask = function() {
+		return 0;
+	};
+}
+
+});
+return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("readable-stream", {}, function(___scope___){
+___scope___.file("readable.js", function(exports, require, module, __filename, __dirname){
+/* fuse:injection: */ var process = require("process");
+var Stream = require('stream');
+if (process.env.READABLE_STREAM === 'disable' && Stream) {
+  module.exports = Stream;
+  exports = module.exports = Stream.Readable;
+  exports.Readable = Stream.Readable;
+  exports.Writable = Stream.Writable;
+  exports.Duplex = Stream.Duplex;
+  exports.Transform = Stream.Transform;
+  exports.PassThrough = Stream.PassThrough;
+  exports.Stream = Stream;
+} else {
+  exports = module.exports = require('./lib/_stream_readable.js');
+  exports.Stream = Stream || exports;
+  exports.Readable = exports;
+  exports.Writable = require('./lib/_stream_writable.js');
+  exports.Duplex = require('./lib/_stream_duplex.js');
+  exports.Transform = require('./lib/_stream_transform.js');
+  exports.PassThrough = require('./lib/_stream_passthrough.js');
+}
+
+});
+___scope___.file("lib/_stream_readable.js", function(exports, require, module, __filename, __dirname){
+/* fuse:injection: */ var process = require("process");
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+'use strict';
+
+/*<replacement>*/
+
+var pna = require('process-nextick-args');
+/*</replacement>*/
+
+module.exports = Readable;
+
+/*<replacement>*/
+var isArray = require('isarray');
+/*</replacement>*/
+
+/*<replacement>*/
+var Duplex;
+/*</replacement>*/
+
+Readable.ReadableState = ReadableState;
+
+/*<replacement>*/
+var EE = require('events').EventEmitter;
+
+var EElistenerCount = function (emitter, type) {
+  return emitter.listeners(type).length;
+};
+/*</replacement>*/
+
+/*<replacement>*/
+var Stream = require("~/lib/internal/streams/stream-browser.js");
+/*</replacement>*/
+
+/*<replacement>*/
+
+var Buffer = require('safe-buffer').Buffer;
+var OurUint8Array = global.Uint8Array || function () {};
+function _uint8ArrayToBuffer(chunk) {
+  return Buffer.from(chunk);
+}
+function _isUint8Array(obj) {
+  return Buffer.isBuffer(obj) || obj instanceof OurUint8Array;
+}
+
+/*</replacement>*/
+
+/*<replacement>*/
+var util = Object.create(require('core-util-is'));
+util.inherits = require('inherits');
+/*</replacement>*/
+
+/*<replacement>*/
+var debugUtil = require("fuse-empty-package");
+var debug = void 0;
+if (debugUtil && debugUtil.debuglog) {
+  debug = debugUtil.debuglog('stream');
+} else {
+  debug = function () {};
+}
+/*</replacement>*/
+
+var BufferList = require('./internal/streams/BufferList');
+var destroyImpl = require('./internal/streams/destroy');
+var StringDecoder;
+
+util.inherits(Readable, Stream);
+
+var kProxyEvents = ['error', 'close', 'destroy', 'pause', 'resume'];
+
+function prependListener(emitter, event, fn) {
+  // Sadly this is not cacheable as some libraries bundle their own
+  // event emitter implementation with them.
+  if (typeof emitter.prependListener === 'function') return emitter.prependListener(event, fn);
+
+  // This is a hack to make sure that our error handler is attached before any
+  // userland ones.  NEVER DO THIS. This is here only because this code needs
+  // to continue to work with older versions of Node.js that do not include
+  // the prependListener() method. The goal is to eventually remove this hack.
+  if (!emitter._events || !emitter._events[event]) emitter.on(event, fn);else if (isArray(emitter._events[event])) emitter._events[event].unshift(fn);else emitter._events[event] = [fn, emitter._events[event]];
+}
+
+function ReadableState(options, stream) {
+  Duplex = Duplex || require('./_stream_duplex');
+
+  options = options || {};
+
+  // Duplex streams are both readable and writable, but share
+  // the same options object.
+  // However, some cases require setting options to different
+  // values for the readable and the writable sides of the duplex stream.
+  // These options can be provided separately as readableXXX and writableXXX.
+  var isDuplex = stream instanceof Duplex;
+
+  // object stream flag. Used to make read(n) ignore n and to
+  // make all the buffer merging and length checks go away
+  this.objectMode = !!options.objectMode;
+
+  if (isDuplex) this.objectMode = this.objectMode || !!options.readableObjectMode;
+
+  // the point at which it stops calling _read() to fill the buffer
+  // Note: 0 is a valid value, means "don't call _read preemptively ever"
+  var hwm = options.highWaterMark;
+  var readableHwm = options.readableHighWaterMark;
+  var defaultHwm = this.objectMode ? 16 : 16 * 1024;
+
+  if (hwm || hwm === 0) this.highWaterMark = hwm;else if (isDuplex && (readableHwm || readableHwm === 0)) this.highWaterMark = readableHwm;else this.highWaterMark = defaultHwm;
+
+  // cast to ints.
+  this.highWaterMark = Math.floor(this.highWaterMark);
+
+  // A linked list is used to store data chunks instead of an array because the
+  // linked list can remove elements from the beginning faster than
+  // array.shift()
+  this.buffer = new BufferList();
+  this.length = 0;
+  this.pipes = null;
+  this.pipesCount = 0;
+  this.flowing = null;
+  this.ended = false;
+  this.endEmitted = false;
+  this.reading = false;
+
+  // a flag to be able to tell if the event 'readable'/'data' is emitted
+  // immediately, or on a later tick.  We set this to true at first, because
+  // any actions that shouldn't happen until "later" should generally also
+  // not happen before the first read call.
+  this.sync = true;
+
+  // whenever we return null, then we set a flag to say
+  // that we're awaiting a 'readable' event emission.
+  this.needReadable = false;
+  this.emittedReadable = false;
+  this.readableListening = false;
+  this.resumeScheduled = false;
+
+  // has it been destroyed
+  this.destroyed = false;
+
+  // Crypto is kind of old and crusty.  Historically, its default string
+  // encoding is 'binary' so we have to make this configurable.
+  // Everything else in the universe uses 'utf8', though.
+  this.defaultEncoding = options.defaultEncoding || 'utf8';
+
+  // the number of writers that are awaiting a drain event in .pipe()s
+  this.awaitDrain = 0;
+
+  // if true, a maybeReadMore has been scheduled
+  this.readingMore = false;
+
+  this.decoder = null;
+  this.encoding = null;
+  if (options.encoding) {
+    if (!StringDecoder) StringDecoder = require('string_decoder/').StringDecoder;
+    this.decoder = new StringDecoder(options.encoding);
+    this.encoding = options.encoding;
+  }
+}
+
+function Readable(options) {
+  Duplex = Duplex || require('./_stream_duplex');
+
+  if (!(this instanceof Readable)) return new Readable(options);
+
+  this._readableState = new ReadableState(options, this);
+
+  // legacy
+  this.readable = true;
+
+  if (options) {
+    if (typeof options.read === 'function') this._read = options.read;
+
+    if (typeof options.destroy === 'function') this._destroy = options.destroy;
+  }
+
+  Stream.call(this);
+}
+
+Object.defineProperty(Readable.prototype, 'destroyed', {
+  get: function () {
+    if (this._readableState === undefined) {
+      return false;
+    }
+    return this._readableState.destroyed;
+  },
+  set: function (value) {
+    // we ignore the value if the stream
+    // has not been initialized yet
+    if (!this._readableState) {
+      return;
+    }
+
+    // backward compatibility, the user is explicitly
+    // managing destroyed
+    this._readableState.destroyed = value;
+  }
+});
+
+Readable.prototype.destroy = destroyImpl.destroy;
+Readable.prototype._undestroy = destroyImpl.undestroy;
+Readable.prototype._destroy = function (err, cb) {
+  this.push(null);
+  cb(err);
+};
+
+// Manually shove something into the read() buffer.
+// This returns true if the highWaterMark has not been hit yet,
+// similar to how Writable.write() returns true if you should
+// write() some more.
+Readable.prototype.push = function (chunk, encoding) {
+  var state = this._readableState;
+  var skipChunkCheck;
+
+  if (!state.objectMode) {
+    if (typeof chunk === 'string') {
+      encoding = encoding || state.defaultEncoding;
+      if (encoding !== state.encoding) {
+        chunk = Buffer.from(chunk, encoding);
+        encoding = '';
+      }
+      skipChunkCheck = true;
+    }
+  } else {
+    skipChunkCheck = true;
+  }
+
+  return readableAddChunk(this, chunk, encoding, false, skipChunkCheck);
+};
+
+// Unshift should *always* be something directly out of read()
+Readable.prototype.unshift = function (chunk) {
+  return readableAddChunk(this, chunk, null, true, false);
+};
+
+function readableAddChunk(stream, chunk, encoding, addToFront, skipChunkCheck) {
+  var state = stream._readableState;
+  if (chunk === null) {
+    state.reading = false;
+    onEofChunk(stream, state);
+  } else {
+    var er;
+    if (!skipChunkCheck) er = chunkInvalid(state, chunk);
+    if (er) {
+      stream.emit('error', er);
+    } else if (state.objectMode || chunk && chunk.length > 0) {
+      if (typeof chunk !== 'string' && !state.objectMode && Object.getPrototypeOf(chunk) !== Buffer.prototype) {
+        chunk = _uint8ArrayToBuffer(chunk);
+      }
+
+      if (addToFront) {
+        if (state.endEmitted) stream.emit('error', new Error('stream.unshift() after end event'));else addChunk(stream, state, chunk, true);
+      } else if (state.ended) {
+        stream.emit('error', new Error('stream.push() after EOF'));
+      } else {
+        state.reading = false;
+        if (state.decoder && !encoding) {
+          chunk = state.decoder.write(chunk);
+          if (state.objectMode || chunk.length !== 0) addChunk(stream, state, chunk, false);else maybeReadMore(stream, state);
+        } else {
+          addChunk(stream, state, chunk, false);
+        }
+      }
+    } else if (!addToFront) {
+      state.reading = false;
+    }
+  }
+
+  return needMoreData(state);
+}
+
+function addChunk(stream, state, chunk, addToFront) {
+  if (state.flowing && state.length === 0 && !state.sync) {
+    stream.emit('data', chunk);
+    stream.read(0);
+  } else {
+    // update the buffer info.
+    state.length += state.objectMode ? 1 : chunk.length;
+    if (addToFront) state.buffer.unshift(chunk);else state.buffer.push(chunk);
+
+    if (state.needReadable) emitReadable(stream);
+  }
+  maybeReadMore(stream, state);
+}
+
+function chunkInvalid(state, chunk) {
+  var er;
+  if (!_isUint8Array(chunk) && typeof chunk !== 'string' && chunk !== undefined && !state.objectMode) {
+    er = new TypeError('Invalid non-string/buffer chunk');
+  }
+  return er;
+}
+
+// if it's past the high water mark, we can push in some more.
+// Also, if we have no data yet, we can stand some
+// more bytes.  This is to work around cases where hwm=0,
+// such as the repl.  Also, if the push() triggered a
+// readable event, and the user called read(largeNumber) such that
+// needReadable was set, then we ought to push more, so that another
+// 'readable' event will be triggered.
+function needMoreData(state) {
+  return !state.ended && (state.needReadable || state.length < state.highWaterMark || state.length === 0);
+}
+
+Readable.prototype.isPaused = function () {
+  return this._readableState.flowing === false;
+};
+
+// backwards compatibility.
+Readable.prototype.setEncoding = function (enc) {
+  if (!StringDecoder) StringDecoder = require('string_decoder/').StringDecoder;
+  this._readableState.decoder = new StringDecoder(enc);
+  this._readableState.encoding = enc;
+  return this;
+};
+
+// Don't raise the hwm > 8MB
+var MAX_HWM = 0x800000;
+function computeNewHighWaterMark(n) {
+  if (n >= MAX_HWM) {
+    n = MAX_HWM;
+  } else {
+    // Get the next highest power of 2 to prevent increasing hwm excessively in
+    // tiny amounts
+    n--;
+    n |= n >>> 1;
+    n |= n >>> 2;
+    n |= n >>> 4;
+    n |= n >>> 8;
+    n |= n >>> 16;
+    n++;
+  }
+  return n;
+}
+
+// This function is designed to be inlinable, so please take care when making
+// changes to the function body.
+function howMuchToRead(n, state) {
+  if (n <= 0 || state.length === 0 && state.ended) return 0;
+  if (state.objectMode) return 1;
+  if (n !== n) {
+    // Only flow one buffer at a time
+    if (state.flowing && state.length) return state.buffer.head.data.length;else return state.length;
+  }
+  // If we're asking for more than the current hwm, then raise the hwm.
+  if (n > state.highWaterMark) state.highWaterMark = computeNewHighWaterMark(n);
+  if (n <= state.length) return n;
+  // Don't have enough
+  if (!state.ended) {
+    state.needReadable = true;
+    return 0;
+  }
+  return state.length;
+}
+
+// you can override either this method, or the async _read(n) below.
+Readable.prototype.read = function (n) {
+  debug('read', n);
+  n = parseInt(n, 10);
+  var state = this._readableState;
+  var nOrig = n;
+
+  if (n !== 0) state.emittedReadable = false;
+
+  // if we're doing read(0) to trigger a readable event, but we
+  // already have a bunch of data in the buffer, then just trigger
+  // the 'readable' event and move on.
+  if (n === 0 && state.needReadable && (state.length >= state.highWaterMark || state.ended)) {
+    debug('read: emitReadable', state.length, state.ended);
+    if (state.length === 0 && state.ended) endReadable(this);else emitReadable(this);
+    return null;
+  }
+
+  n = howMuchToRead(n, state);
+
+  // if we've ended, and we're now clear, then finish it up.
+  if (n === 0 && state.ended) {
+    if (state.length === 0) endReadable(this);
+    return null;
+  }
+
+  // All the actual chunk generation logic needs to be
+  // *below* the call to _read.  The reason is that in certain
+  // synthetic stream cases, such as passthrough streams, _read
+  // may be a completely synchronous operation which may change
+  // the state of the read buffer, providing enough data when
+  // before there was *not* enough.
+  //
+  // So, the steps are:
+  // 1. Figure out what the state of things will be after we do
+  // a read from the buffer.
+  //
+  // 2. If that resulting state will trigger a _read, then call _read.
+  // Note that this may be asynchronous, or synchronous.  Yes, it is
+  // deeply ugly to write APIs this way, but that still doesn't mean
+  // that the Readable class should behave improperly, as streams are
+  // designed to be sync/async agnostic.
+  // Take note if the _read call is sync or async (ie, if the read call
+  // has returned yet), so that we know whether or not it's safe to emit
+  // 'readable' etc.
+  //
+  // 3. Actually pull the requested chunks out of the buffer and return.
+
+  // if we need a readable event, then we need to do some reading.
+  var doRead = state.needReadable;
+  debug('need readable', doRead);
+
+  // if we currently have less than the highWaterMark, then also read some
+  if (state.length === 0 || state.length - n < state.highWaterMark) {
+    doRead = true;
+    debug('length less than watermark', doRead);
+  }
+
+  // however, if we've ended, then there's no point, and if we're already
+  // reading, then it's unnecessary.
+  if (state.ended || state.reading) {
+    doRead = false;
+    debug('reading or ended', doRead);
+  } else if (doRead) {
+    debug('do read');
+    state.reading = true;
+    state.sync = true;
+    // if the length is currently zero, then we *need* a readable event.
+    if (state.length === 0) state.needReadable = true;
+    // call internal read method
+    this._read(state.highWaterMark);
+    state.sync = false;
+    // If _read pushed data synchronously, then `reading` will be false,
+    // and we need to re-evaluate how much data we can return to the user.
+    if (!state.reading) n = howMuchToRead(nOrig, state);
+  }
+
+  var ret;
+  if (n > 0) ret = fromList(n, state);else ret = null;
+
+  if (ret === null) {
+    state.needReadable = true;
+    n = 0;
+  } else {
+    state.length -= n;
+  }
+
+  if (state.length === 0) {
+    // If we have nothing in the buffer, then we want to know
+    // as soon as we *do* get something into the buffer.
+    if (!state.ended) state.needReadable = true;
+
+    // If we tried to read() past the EOF, then emit end on the next tick.
+    if (nOrig !== n && state.ended) endReadable(this);
+  }
+
+  if (ret !== null) this.emit('data', ret);
+
+  return ret;
+};
+
+function onEofChunk(stream, state) {
+  if (state.ended) return;
+  if (state.decoder) {
+    var chunk = state.decoder.end();
+    if (chunk && chunk.length) {
+      state.buffer.push(chunk);
+      state.length += state.objectMode ? 1 : chunk.length;
+    }
+  }
+  state.ended = true;
+
+  // emit 'readable' now to make sure it gets picked up.
+  emitReadable(stream);
+}
+
+// Don't emit readable right away in sync mode, because this can trigger
+// another read() call => stack overflow.  This way, it might trigger
+// a nextTick recursion warning, but that's not so bad.
+function emitReadable(stream) {
+  var state = stream._readableState;
+  state.needReadable = false;
+  if (!state.emittedReadable) {
+    debug('emitReadable', state.flowing);
+    state.emittedReadable = true;
+    if (state.sync) pna.nextTick(emitReadable_, stream);else emitReadable_(stream);
+  }
+}
+
+function emitReadable_(stream) {
+  debug('emit readable');
+  stream.emit('readable');
+  flow(stream);
+}
+
+// at this point, the user has presumably seen the 'readable' event,
+// and called read() to consume some data.  that may have triggered
+// in turn another _read(n) call, in which case reading = true if
+// it's in progress.
+// However, if we're not ended, or reading, and the length < hwm,
+// then go ahead and try to read some more preemptively.
+function maybeReadMore(stream, state) {
+  if (!state.readingMore) {
+    state.readingMore = true;
+    pna.nextTick(maybeReadMore_, stream, state);
+  }
+}
+
+function maybeReadMore_(stream, state) {
+  var len = state.length;
+  while (!state.reading && !state.flowing && !state.ended && state.length < state.highWaterMark) {
+    debug('maybeReadMore read 0');
+    stream.read(0);
+    if (len === state.length)
+      // didn't get any data, stop spinning.
+      break;else len = state.length;
+  }
+  state.readingMore = false;
+}
+
+// abstract method.  to be overridden in specific implementation classes.
+// call cb(er, data) where data is <= n in length.
+// for virtual (non-string, non-buffer) streams, "length" is somewhat
+// arbitrary, and perhaps not very meaningful.
+Readable.prototype._read = function (n) {
+  this.emit('error', new Error('_read() is not implemented'));
+};
+
+Readable.prototype.pipe = function (dest, pipeOpts) {
+  var src = this;
+  var state = this._readableState;
+
+  switch (state.pipesCount) {
+    case 0:
+      state.pipes = dest;
+      break;
+    case 1:
+      state.pipes = [state.pipes, dest];
+      break;
+    default:
+      state.pipes.push(dest);
+      break;
+  }
+  state.pipesCount += 1;
+  debug('pipe count=%d opts=%j', state.pipesCount, pipeOpts);
+
+  var doEnd = (!pipeOpts || pipeOpts.end !== false) && dest !== process.stdout && dest !== process.stderr;
+
+  var endFn = doEnd ? onend : unpipe;
+  if (state.endEmitted) pna.nextTick(endFn);else src.once('end', endFn);
+
+  dest.on('unpipe', onunpipe);
+  function onunpipe(readable, unpipeInfo) {
+    debug('onunpipe');
+    if (readable === src) {
+      if (unpipeInfo && unpipeInfo.hasUnpiped === false) {
+        unpipeInfo.hasUnpiped = true;
+        cleanup();
+      }
+    }
+  }
+
+  function onend() {
+    debug('onend');
+    dest.end();
+  }
+
+  // when the dest drains, it reduces the awaitDrain counter
+  // on the source.  This would be more elegant with a .once()
+  // handler in flow(), but adding and removing repeatedly is
+  // too slow.
+  var ondrain = pipeOnDrain(src);
+  dest.on('drain', ondrain);
+
+  var cleanedUp = false;
+  function cleanup() {
+    debug('cleanup');
+    // cleanup event handlers once the pipe is broken
+    dest.removeListener('close', onclose);
+    dest.removeListener('finish', onfinish);
+    dest.removeListener('drain', ondrain);
+    dest.removeListener('error', onerror);
+    dest.removeListener('unpipe', onunpipe);
+    src.removeListener('end', onend);
+    src.removeListener('end', unpipe);
+    src.removeListener('data', ondata);
+
+    cleanedUp = true;
+
+    // if the reader is waiting for a drain event from this
+    // specific writer, then it would cause it to never start
+    // flowing again.
+    // So, if this is awaiting a drain, then we just call it now.
+    // If we don't know, then assume that we are waiting for one.
+    if (state.awaitDrain && (!dest._writableState || dest._writableState.needDrain)) ondrain();
+  }
+
+  // If the user pushes more data while we're writing to dest then we'll end up
+  // in ondata again. However, we only want to increase awaitDrain once because
+  // dest will only emit one 'drain' event for the multiple writes.
+  // => Introduce a guard on increasing awaitDrain.
+  var increasedAwaitDrain = false;
+  src.on('data', ondata);
+  function ondata(chunk) {
+    debug('ondata');
+    increasedAwaitDrain = false;
+    var ret = dest.write(chunk);
+    if (false === ret && !increasedAwaitDrain) {
+      // If the user unpiped during `dest.write()`, it is possible
+      // to get stuck in a permanently paused state if that write
+      // also returned false.
+      // => Check whether `dest` is still a piping destination.
+      if ((state.pipesCount === 1 && state.pipes === dest || state.pipesCount > 1 && indexOf(state.pipes, dest) !== -1) && !cleanedUp) {
+        debug('false write response, pause', src._readableState.awaitDrain);
+        src._readableState.awaitDrain++;
+        increasedAwaitDrain = true;
+      }
+      src.pause();
+    }
+  }
+
+  // if the dest has an error, then stop piping into it.
+  // however, don't suppress the throwing behavior for this.
+  function onerror(er) {
+    debug('onerror', er);
+    unpipe();
+    dest.removeListener('error', onerror);
+    if (EElistenerCount(dest, 'error') === 0) dest.emit('error', er);
+  }
+
+  // Make sure our error handler is attached before userland ones.
+  prependListener(dest, 'error', onerror);
+
+  // Both close and finish should trigger unpipe, but only once.
+  function onclose() {
+    dest.removeListener('finish', onfinish);
+    unpipe();
+  }
+  dest.once('close', onclose);
+  function onfinish() {
+    debug('onfinish');
+    dest.removeListener('close', onclose);
+    unpipe();
+  }
+  dest.once('finish', onfinish);
+
+  function unpipe() {
+    debug('unpipe');
+    src.unpipe(dest);
+  }
+
+  // tell the dest that it's being piped to
+  dest.emit('pipe', src);
+
+  // start the flow if it hasn't been started already.
+  if (!state.flowing) {
+    debug('pipe resume');
+    src.resume();
+  }
+
+  return dest;
+};
+
+function pipeOnDrain(src) {
+  return function () {
+    var state = src._readableState;
+    debug('pipeOnDrain', state.awaitDrain);
+    if (state.awaitDrain) state.awaitDrain--;
+    if (state.awaitDrain === 0 && EElistenerCount(src, 'data')) {
+      state.flowing = true;
+      flow(src);
+    }
+  };
+}
+
+Readable.prototype.unpipe = function (dest) {
+  var state = this._readableState;
+  var unpipeInfo = { hasUnpiped: false };
+
+  // if we're not piping anywhere, then do nothing.
+  if (state.pipesCount === 0) return this;
+
+  // just one destination.  most common case.
+  if (state.pipesCount === 1) {
+    // passed in one, but it's not the right one.
+    if (dest && dest !== state.pipes) return this;
+
+    if (!dest) dest = state.pipes;
+
+    // got a match.
+    state.pipes = null;
+    state.pipesCount = 0;
+    state.flowing = false;
+    if (dest) dest.emit('unpipe', this, unpipeInfo);
+    return this;
+  }
+
+  // slow case. multiple pipe destinations.
+
+  if (!dest) {
+    // remove all.
+    var dests = state.pipes;
+    var len = state.pipesCount;
+    state.pipes = null;
+    state.pipesCount = 0;
+    state.flowing = false;
+
+    for (var i = 0; i < len; i++) {
+      dests[i].emit('unpipe', this, unpipeInfo);
+    }return this;
+  }
+
+  // try to find the right one.
+  var index = indexOf(state.pipes, dest);
+  if (index === -1) return this;
+
+  state.pipes.splice(index, 1);
+  state.pipesCount -= 1;
+  if (state.pipesCount === 1) state.pipes = state.pipes[0];
+
+  dest.emit('unpipe', this, unpipeInfo);
+
+  return this;
+};
+
+// set up data events if they are asked for
+// Ensure readable listeners eventually get something
+Readable.prototype.on = function (ev, fn) {
+  var res = Stream.prototype.on.call(this, ev, fn);
+
+  if (ev === 'data') {
+    // Start flowing on next tick if stream isn't explicitly paused
+    if (this._readableState.flowing !== false) this.resume();
+  } else if (ev === 'readable') {
+    var state = this._readableState;
+    if (!state.endEmitted && !state.readableListening) {
+      state.readableListening = state.needReadable = true;
+      state.emittedReadable = false;
+      if (!state.reading) {
+        pna.nextTick(nReadingNextTick, this);
+      } else if (state.length) {
+        emitReadable(this);
+      }
+    }
+  }
+
+  return res;
+};
+Readable.prototype.addListener = Readable.prototype.on;
+
+function nReadingNextTick(self) {
+  debug('readable nexttick read 0');
+  self.read(0);
+}
+
+// pause() and resume() are remnants of the legacy readable stream API
+// If the user uses them, then switch into old mode.
+Readable.prototype.resume = function () {
+  var state = this._readableState;
+  if (!state.flowing) {
+    debug('resume');
+    state.flowing = true;
+    resume(this, state);
+  }
+  return this;
+};
+
+function resume(stream, state) {
+  if (!state.resumeScheduled) {
+    state.resumeScheduled = true;
+    pna.nextTick(resume_, stream, state);
+  }
+}
+
+function resume_(stream, state) {
+  if (!state.reading) {
+    debug('resume read 0');
+    stream.read(0);
+  }
+
+  state.resumeScheduled = false;
+  state.awaitDrain = 0;
+  stream.emit('resume');
+  flow(stream);
+  if (state.flowing && !state.reading) stream.read(0);
+}
+
+Readable.prototype.pause = function () {
+  debug('call pause flowing=%j', this._readableState.flowing);
+  if (false !== this._readableState.flowing) {
+    debug('pause');
+    this._readableState.flowing = false;
+    this.emit('pause');
+  }
+  return this;
+};
+
+function flow(stream) {
+  var state = stream._readableState;
+  debug('flow', state.flowing);
+  while (state.flowing && stream.read() !== null) {}
+}
+
+// wrap an old-style stream as the async data source.
+// This is *not* part of the readable stream interface.
+// It is an ugly unfortunate mess of history.
+Readable.prototype.wrap = function (stream) {
+  var _this = this;
+
+  var state = this._readableState;
+  var paused = false;
+
+  stream.on('end', function () {
+    debug('wrapped end');
+    if (state.decoder && !state.ended) {
+      var chunk = state.decoder.end();
+      if (chunk && chunk.length) _this.push(chunk);
+    }
+
+    _this.push(null);
+  });
+
+  stream.on('data', function (chunk) {
+    debug('wrapped data');
+    if (state.decoder) chunk = state.decoder.write(chunk);
+
+    // don't skip over falsy values in objectMode
+    if (state.objectMode && (chunk === null || chunk === undefined)) return;else if (!state.objectMode && (!chunk || !chunk.length)) return;
+
+    var ret = _this.push(chunk);
+    if (!ret) {
+      paused = true;
+      stream.pause();
+    }
+  });
+
+  // proxy all the other methods.
+  // important when wrapping filters and duplexes.
+  for (var i in stream) {
+    if (this[i] === undefined && typeof stream[i] === 'function') {
+      this[i] = function (method) {
+        return function () {
+          return stream[method].apply(stream, arguments);
+        };
+      }(i);
+    }
+  }
+
+  // proxy certain important events.
+  for (var n = 0; n < kProxyEvents.length; n++) {
+    stream.on(kProxyEvents[n], this.emit.bind(this, kProxyEvents[n]));
+  }
+
+  // when we try to consume some more bytes, simply unpause the
+  // underlying stream.
+  this._read = function (n) {
+    debug('wrapped _read', n);
+    if (paused) {
+      paused = false;
+      stream.resume();
+    }
+  };
+
+  return this;
+};
+
+Object.defineProperty(Readable.prototype, 'readableHighWaterMark', {
+  // making it explicit this property is not enumerable
+  // because otherwise some prototype manipulation in
+  // userland will fail
+  enumerable: false,
+  get: function () {
+    return this._readableState.highWaterMark;
+  }
+});
+
+// exposed for testing purposes only.
+Readable._fromList = fromList;
+
+// Pluck off n bytes from an array of buffers.
+// Length is the combined lengths of all the buffers in the list.
+// This function is designed to be inlinable, so please take care when making
+// changes to the function body.
+function fromList(n, state) {
+  // nothing buffered
+  if (state.length === 0) return null;
+
+  var ret;
+  if (state.objectMode) ret = state.buffer.shift();else if (!n || n >= state.length) {
+    // read it all, truncate the list
+    if (state.decoder) ret = state.buffer.join('');else if (state.buffer.length === 1) ret = state.buffer.head.data;else ret = state.buffer.concat(state.length);
+    state.buffer.clear();
+  } else {
+    // read part of list
+    ret = fromListPartial(n, state.buffer, state.decoder);
+  }
+
+  return ret;
+}
+
+// Extracts only enough buffered data to satisfy the amount requested.
+// This function is designed to be inlinable, so please take care when making
+// changes to the function body.
+function fromListPartial(n, list, hasStrings) {
+  var ret;
+  if (n < list.head.data.length) {
+    // slice is the same for buffers and strings
+    ret = list.head.data.slice(0, n);
+    list.head.data = list.head.data.slice(n);
+  } else if (n === list.head.data.length) {
+    // first chunk is a perfect match
+    ret = list.shift();
+  } else {
+    // result spans more than one buffer
+    ret = hasStrings ? copyFromBufferString(n, list) : copyFromBuffer(n, list);
+  }
+  return ret;
+}
+
+// Copies a specified amount of characters from the list of buffered data
+// chunks.
+// This function is designed to be inlinable, so please take care when making
+// changes to the function body.
+function copyFromBufferString(n, list) {
+  var p = list.head;
+  var c = 1;
+  var ret = p.data;
+  n -= ret.length;
+  while (p = p.next) {
+    var str = p.data;
+    var nb = n > str.length ? str.length : n;
+    if (nb === str.length) ret += str;else ret += str.slice(0, n);
+    n -= nb;
+    if (n === 0) {
+      if (nb === str.length) {
+        ++c;
+        if (p.next) list.head = p.next;else list.head = list.tail = null;
+      } else {
+        list.head = p;
+        p.data = str.slice(nb);
+      }
+      break;
+    }
+    ++c;
+  }
+  list.length -= c;
+  return ret;
+}
+
+// Copies a specified amount of bytes from the list of buffered data chunks.
+// This function is designed to be inlinable, so please take care when making
+// changes to the function body.
+function copyFromBuffer(n, list) {
+  var ret = Buffer.allocUnsafe(n);
+  var p = list.head;
+  var c = 1;
+  p.data.copy(ret);
+  n -= p.data.length;
+  while (p = p.next) {
+    var buf = p.data;
+    var nb = n > buf.length ? buf.length : n;
+    buf.copy(ret, ret.length - n, 0, nb);
+    n -= nb;
+    if (n === 0) {
+      if (nb === buf.length) {
+        ++c;
+        if (p.next) list.head = p.next;else list.head = list.tail = null;
+      } else {
+        list.head = p;
+        p.data = buf.slice(nb);
+      }
+      break;
+    }
+    ++c;
+  }
+  list.length -= c;
+  return ret;
+}
+
+function endReadable(stream) {
+  var state = stream._readableState;
+
+  // If we get here before consuming all the bytes, then that is a
+  // bug in node.  Should never happen.
+  if (state.length > 0) throw new Error('"endReadable()" called on non-empty stream');
+
+  if (!state.endEmitted) {
+    state.ended = true;
+    pna.nextTick(endReadableNT, state, stream);
+  }
+}
+
+function endReadableNT(state, stream) {
+  // Check that we didn't get one last unshift.
+  if (!state.endEmitted && state.length === 0) {
+    state.endEmitted = true;
+    stream.readable = false;
+    stream.emit('end');
+  }
+}
+
+function indexOf(xs, x) {
+  for (var i = 0, l = xs.length; i < l; i++) {
+    if (xs[i] === x) return i;
+  }
+  return -1;
+}
+});
+___scope___.file("lib/internal/streams/stream-browser.js", function(exports, require, module, __filename, __dirname){
+
+module.exports = require('events').EventEmitter;
+
+});
+___scope___.file("lib/internal/streams/BufferList.js", function(exports, require, module, __filename, __dirname){
+
+'use strict';
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+var Buffer = require('safe-buffer').Buffer;
+var util = require("fuse-empty-package");
+
+function copyBuffer(src, target, offset) {
+  src.copy(target, offset);
+}
+
+module.exports = function () {
+  function BufferList() {
+    _classCallCheck(this, BufferList);
+
+    this.head = null;
+    this.tail = null;
+    this.length = 0;
+  }
+
+  BufferList.prototype.push = function push(v) {
+    var entry = { data: v, next: null };
+    if (this.length > 0) this.tail.next = entry;else this.head = entry;
+    this.tail = entry;
+    ++this.length;
+  };
+
+  BufferList.prototype.unshift = function unshift(v) {
+    var entry = { data: v, next: this.head };
+    if (this.length === 0) this.tail = entry;
+    this.head = entry;
+    ++this.length;
+  };
+
+  BufferList.prototype.shift = function shift() {
+    if (this.length === 0) return;
+    var ret = this.head.data;
+    if (this.length === 1) this.head = this.tail = null;else this.head = this.head.next;
+    --this.length;
+    return ret;
+  };
+
+  BufferList.prototype.clear = function clear() {
+    this.head = this.tail = null;
+    this.length = 0;
+  };
+
+  BufferList.prototype.join = function join(s) {
+    if (this.length === 0) return '';
+    var p = this.head;
+    var ret = '' + p.data;
+    while (p = p.next) {
+      ret += s + p.data;
+    }return ret;
+  };
+
+  BufferList.prototype.concat = function concat(n) {
+    if (this.length === 0) return Buffer.alloc(0);
+    if (this.length === 1) return this.head.data;
+    var ret = Buffer.allocUnsafe(n >>> 0);
+    var p = this.head;
+    var i = 0;
+    while (p) {
+      copyBuffer(p.data, ret, i);
+      i += p.data.length;
+      p = p.next;
+    }
+    return ret;
+  };
+
+  return BufferList;
+}();
+
+if (util && util.inspect && util.inspect.custom) {
+  module.exports.prototype[util.inspect.custom] = function () {
+    var obj = util.inspect({ length: this.length });
+    return this.constructor.name + ' ' + obj;
+  };
+}
+});
+___scope___.file("lib/internal/streams/destroy.js", function(exports, require, module, __filename, __dirname){
+
+'use strict';
+
+/*<replacement>*/
+
+var pna = require('process-nextick-args');
+/*</replacement>*/
+
+// undocumented cb() API, needed for core, not for public API
+function destroy(err, cb) {
+  var _this = this;
+
+  var readableDestroyed = this._readableState && this._readableState.destroyed;
+  var writableDestroyed = this._writableState && this._writableState.destroyed;
+
+  if (readableDestroyed || writableDestroyed) {
+    if (cb) {
+      cb(err);
+    } else if (err && (!this._writableState || !this._writableState.errorEmitted)) {
+      pna.nextTick(emitErrorNT, this, err);
+    }
+    return this;
+  }
+
+  // we set destroyed to true before firing error callbacks in order
+  // to make it re-entrance safe in case destroy() is called within callbacks
+
+  if (this._readableState) {
+    this._readableState.destroyed = true;
+  }
+
+  // if this is a duplex stream mark the writable part as destroyed as well
+  if (this._writableState) {
+    this._writableState.destroyed = true;
+  }
+
+  this._destroy(err || null, function (err) {
+    if (!cb && err) {
+      pna.nextTick(emitErrorNT, _this, err);
+      if (_this._writableState) {
+        _this._writableState.errorEmitted = true;
+      }
+    } else if (cb) {
+      cb(err);
+    }
+  });
+
+  return this;
+}
+
+function undestroy() {
+  if (this._readableState) {
+    this._readableState.destroyed = false;
+    this._readableState.reading = false;
+    this._readableState.ended = false;
+    this._readableState.endEmitted = false;
+  }
+
+  if (this._writableState) {
+    this._writableState.destroyed = false;
+    this._writableState.ended = false;
+    this._writableState.ending = false;
+    this._writableState.finished = false;
+    this._writableState.errorEmitted = false;
+  }
+}
+
+function emitErrorNT(self, err) {
+  self.emit('error', err);
+}
+
+module.exports = {
+  destroy: destroy,
+  undestroy: undestroy
+};
+});
+___scope___.file("lib/_stream_duplex.js", function(exports, require, module, __filename, __dirname){
+
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// a duplex stream is just a stream that is both readable and writable.
+// Since JS doesn't have multiple prototypal inheritance, this class
+// prototypally inherits from Readable, and then parasitically from
+// Writable.
+
+'use strict';
+
+/*<replacement>*/
+
+var pna = require('process-nextick-args');
+/*</replacement>*/
+
+/*<replacement>*/
+var objectKeys = Object.keys || function (obj) {
+  var keys = [];
+  for (var key in obj) {
+    keys.push(key);
+  }return keys;
+};
+/*</replacement>*/
+
+module.exports = Duplex;
+
+/*<replacement>*/
+var util = Object.create(require('core-util-is'));
+util.inherits = require('inherits');
+/*</replacement>*/
+
+var Readable = require('./_stream_readable');
+var Writable = require('./_stream_writable');
+
+util.inherits(Duplex, Readable);
+
+{
+  // avoid scope creep, the keys array can then be collected
+  var keys = objectKeys(Writable.prototype);
+  for (var v = 0; v < keys.length; v++) {
+    var method = keys[v];
+    if (!Duplex.prototype[method]) Duplex.prototype[method] = Writable.prototype[method];
+  }
+}
+
+function Duplex(options) {
+  if (!(this instanceof Duplex)) return new Duplex(options);
+
+  Readable.call(this, options);
+  Writable.call(this, options);
+
+  if (options && options.readable === false) this.readable = false;
+
+  if (options && options.writable === false) this.writable = false;
+
+  this.allowHalfOpen = true;
+  if (options && options.allowHalfOpen === false) this.allowHalfOpen = false;
+
+  this.once('end', onend);
+}
+
+Object.defineProperty(Duplex.prototype, 'writableHighWaterMark', {
+  // making it explicit this property is not enumerable
+  // because otherwise some prototype manipulation in
+  // userland will fail
+  enumerable: false,
+  get: function () {
+    return this._writableState.highWaterMark;
+  }
+});
+
+// the no-half-open enforcer
+function onend() {
+  // if we allow half-open state, or if the writable side ended,
+  // then we're ok.
+  if (this.allowHalfOpen || this._writableState.ended) return;
+
+  // no more data can be written.
+  // But allow more writes to happen in this tick.
+  pna.nextTick(onEndNT, this);
+}
+
+function onEndNT(self) {
+  self.end();
+}
+
+Object.defineProperty(Duplex.prototype, 'destroyed', {
+  get: function () {
+    if (this._readableState === undefined || this._writableState === undefined) {
+      return false;
+    }
+    return this._readableState.destroyed && this._writableState.destroyed;
+  },
+  set: function (value) {
+    // we ignore the value if the stream
+    // has not been initialized yet
+    if (this._readableState === undefined || this._writableState === undefined) {
+      return;
+    }
+
+    // backward compatibility, the user is explicitly
+    // managing destroyed
+    this._readableState.destroyed = value;
+    this._writableState.destroyed = value;
+  }
+});
+
+Duplex.prototype._destroy = function (err, cb) {
+  this.push(null);
+  this.end();
+
+  pna.nextTick(cb, err);
+};
+});
+___scope___.file("lib/_stream_writable.js", function(exports, require, module, __filename, __dirname){
+/* fuse:injection: */ var process = require("process");
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// A bit simpler than readable streams.
+// Implement an async ._write(chunk, encoding, cb), and it'll handle all
+// the drain event emission and buffering.
+
+'use strict';
+
+/*<replacement>*/
+
+var pna = require('process-nextick-args');
+/*</replacement>*/
+
+module.exports = Writable;
+
+/* <replacement> */
+function WriteReq(chunk, encoding, cb) {
+  this.chunk = chunk;
+  this.encoding = encoding;
+  this.callback = cb;
+  this.next = null;
+}
+
+// It seems a linked list but it is not
+// there will be only 2 of these for each stream
+function CorkedRequest(state) {
+  var _this = this;
+
+  this.next = null;
+  this.entry = null;
+  this.finish = function () {
+    onCorkedFinish(_this, state);
+  };
+}
+/* </replacement> */
+
+/*<replacement>*/
+var asyncWrite = !process.browser && ['v0.10', 'v0.9.'].indexOf(process.version.slice(0, 5)) > -1 ? setImmediate : pna.nextTick;
+/*</replacement>*/
+
+/*<replacement>*/
+var Duplex;
+/*</replacement>*/
+
+Writable.WritableState = WritableState;
+
+/*<replacement>*/
+var util = Object.create(require('core-util-is'));
+util.inherits = require('inherits');
+/*</replacement>*/
+
+/*<replacement>*/
+var internalUtil = {
+  deprecate: require('util-deprecate')
+};
+/*</replacement>*/
+
+/*<replacement>*/
+var Stream = require("~/lib/internal/streams/stream-browser.js");
+/*</replacement>*/
+
+/*<replacement>*/
+
+var Buffer = require('safe-buffer').Buffer;
+var OurUint8Array = global.Uint8Array || function () {};
+function _uint8ArrayToBuffer(chunk) {
+  return Buffer.from(chunk);
+}
+function _isUint8Array(obj) {
+  return Buffer.isBuffer(obj) || obj instanceof OurUint8Array;
+}
+
+/*</replacement>*/
+
+var destroyImpl = require('./internal/streams/destroy');
+
+util.inherits(Writable, Stream);
+
+function nop() {}
+
+function WritableState(options, stream) {
+  Duplex = Duplex || require('./_stream_duplex');
+
+  options = options || {};
+
+  // Duplex streams are both readable and writable, but share
+  // the same options object.
+  // However, some cases require setting options to different
+  // values for the readable and the writable sides of the duplex stream.
+  // These options can be provided separately as readableXXX and writableXXX.
+  var isDuplex = stream instanceof Duplex;
+
+  // object stream flag to indicate whether or not this stream
+  // contains buffers or objects.
+  this.objectMode = !!options.objectMode;
+
+  if (isDuplex) this.objectMode = this.objectMode || !!options.writableObjectMode;
+
+  // the point at which write() starts returning false
+  // Note: 0 is a valid value, means that we always return false if
+  // the entire buffer is not flushed immediately on write()
+  var hwm = options.highWaterMark;
+  var writableHwm = options.writableHighWaterMark;
+  var defaultHwm = this.objectMode ? 16 : 16 * 1024;
+
+  if (hwm || hwm === 0) this.highWaterMark = hwm;else if (isDuplex && (writableHwm || writableHwm === 0)) this.highWaterMark = writableHwm;else this.highWaterMark = defaultHwm;
+
+  // cast to ints.
+  this.highWaterMark = Math.floor(this.highWaterMark);
+
+  // if _final has been called
+  this.finalCalled = false;
+
+  // drain event flag.
+  this.needDrain = false;
+  // at the start of calling end()
+  this.ending = false;
+  // when end() has been called, and returned
+  this.ended = false;
+  // when 'finish' is emitted
+  this.finished = false;
+
+  // has it been destroyed
+  this.destroyed = false;
+
+  // should we decode strings into buffers before passing to _write?
+  // this is here so that some node-core streams can optimize string
+  // handling at a lower level.
+  var noDecode = options.decodeStrings === false;
+  this.decodeStrings = !noDecode;
+
+  // Crypto is kind of old and crusty.  Historically, its default string
+  // encoding is 'binary' so we have to make this configurable.
+  // Everything else in the universe uses 'utf8', though.
+  this.defaultEncoding = options.defaultEncoding || 'utf8';
+
+  // not an actual buffer we keep track of, but a measurement
+  // of how much we're waiting to get pushed to some underlying
+  // socket or file.
+  this.length = 0;
+
+  // a flag to see when we're in the middle of a write.
+  this.writing = false;
+
+  // when true all writes will be buffered until .uncork() call
+  this.corked = 0;
+
+  // a flag to be able to tell if the onwrite cb is called immediately,
+  // or on a later tick.  We set this to true at first, because any
+  // actions that shouldn't happen until "later" should generally also
+  // not happen before the first write call.
+  this.sync = true;
+
+  // a flag to know if we're processing previously buffered items, which
+  // may call the _write() callback in the same tick, so that we don't
+  // end up in an overlapped onwrite situation.
+  this.bufferProcessing = false;
+
+  // the callback that's passed to _write(chunk,cb)
+  this.onwrite = function (er) {
+    onwrite(stream, er);
+  };
+
+  // the callback that the user supplies to write(chunk,encoding,cb)
+  this.writecb = null;
+
+  // the amount that is being written when _write is called.
+  this.writelen = 0;
+
+  this.bufferedRequest = null;
+  this.lastBufferedRequest = null;
+
+  // number of pending user-supplied write callbacks
+  // this must be 0 before 'finish' can be emitted
+  this.pendingcb = 0;
+
+  // emit prefinish if the only thing we're waiting for is _write cbs
+  // This is relevant for synchronous Transform streams
+  this.prefinished = false;
+
+  // True if the error was already emitted and should not be thrown again
+  this.errorEmitted = false;
+
+  // count buffered requests
+  this.bufferedRequestCount = 0;
+
+  // allocate the first CorkedRequest, there is always
+  // one allocated and free to use, and we maintain at most two
+  this.corkedRequestsFree = new CorkedRequest(this);
+}
+
+WritableState.prototype.getBuffer = function getBuffer() {
+  var current = this.bufferedRequest;
+  var out = [];
+  while (current) {
+    out.push(current);
+    current = current.next;
+  }
+  return out;
+};
+
+(function () {
+  try {
+    Object.defineProperty(WritableState.prototype, 'buffer', {
+      get: internalUtil.deprecate(function () {
+        return this.getBuffer();
+      }, '_writableState.buffer is deprecated. Use _writableState.getBuffer ' + 'instead.', 'DEP0003')
+    });
+  } catch (_) {}
+})();
+
+// Test _writableState for inheritance to account for Duplex streams,
+// whose prototype chain only points to Readable.
+var realHasInstance;
+if (typeof Symbol === 'function' && Symbol.hasInstance && typeof Function.prototype[Symbol.hasInstance] === 'function') {
+  realHasInstance = Function.prototype[Symbol.hasInstance];
+  Object.defineProperty(Writable, Symbol.hasInstance, {
+    value: function (object) {
+      if (realHasInstance.call(this, object)) return true;
+      if (this !== Writable) return false;
+
+      return object && object._writableState instanceof WritableState;
+    }
+  });
+} else {
+  realHasInstance = function (object) {
+    return object instanceof this;
+  };
+}
+
+function Writable(options) {
+  Duplex = Duplex || require('./_stream_duplex');
+
+  // Writable ctor is applied to Duplexes, too.
+  // `realHasInstance` is necessary because using plain `instanceof`
+  // would return false, as no `_writableState` property is attached.
+
+  // Trying to use the custom `instanceof` for Writable here will also break the
+  // Node.js LazyTransform implementation, which has a non-trivial getter for
+  // `_writableState` that would lead to infinite recursion.
+  if (!realHasInstance.call(Writable, this) && !(this instanceof Duplex)) {
+    return new Writable(options);
+  }
+
+  this._writableState = new WritableState(options, this);
+
+  // legacy.
+  this.writable = true;
+
+  if (options) {
+    if (typeof options.write === 'function') this._write = options.write;
+
+    if (typeof options.writev === 'function') this._writev = options.writev;
+
+    if (typeof options.destroy === 'function') this._destroy = options.destroy;
+
+    if (typeof options.final === 'function') this._final = options.final;
+  }
+
+  Stream.call(this);
+}
+
+// Otherwise people can pipe Writable streams, which is just wrong.
+Writable.prototype.pipe = function () {
+  this.emit('error', new Error('Cannot pipe, not readable'));
+};
+
+function writeAfterEnd(stream, cb) {
+  var er = new Error('write after end');
+  // TODO: defer error events consistently everywhere, not just the cb
+  stream.emit('error', er);
+  pna.nextTick(cb, er);
+}
+
+// Checks that a user-supplied chunk is valid, especially for the particular
+// mode the stream is in. Currently this means that `null` is never accepted
+// and undefined/non-string values are only allowed in object mode.
+function validChunk(stream, state, chunk, cb) {
+  var valid = true;
+  var er = false;
+
+  if (chunk === null) {
+    er = new TypeError('May not write null values to stream');
+  } else if (typeof chunk !== 'string' && chunk !== undefined && !state.objectMode) {
+    er = new TypeError('Invalid non-string/buffer chunk');
+  }
+  if (er) {
+    stream.emit('error', er);
+    pna.nextTick(cb, er);
+    valid = false;
+  }
+  return valid;
+}
+
+Writable.prototype.write = function (chunk, encoding, cb) {
+  var state = this._writableState;
+  var ret = false;
+  var isBuf = !state.objectMode && _isUint8Array(chunk);
+
+  if (isBuf && !Buffer.isBuffer(chunk)) {
+    chunk = _uint8ArrayToBuffer(chunk);
+  }
+
+  if (typeof encoding === 'function') {
+    cb = encoding;
+    encoding = null;
+  }
+
+  if (isBuf) encoding = 'buffer';else if (!encoding) encoding = state.defaultEncoding;
+
+  if (typeof cb !== 'function') cb = nop;
+
+  if (state.ended) writeAfterEnd(this, cb);else if (isBuf || validChunk(this, state, chunk, cb)) {
+    state.pendingcb++;
+    ret = writeOrBuffer(this, state, isBuf, chunk, encoding, cb);
+  }
+
+  return ret;
+};
+
+Writable.prototype.cork = function () {
+  var state = this._writableState;
+
+  state.corked++;
+};
+
+Writable.prototype.uncork = function () {
+  var state = this._writableState;
+
+  if (state.corked) {
+    state.corked--;
+
+    if (!state.writing && !state.corked && !state.finished && !state.bufferProcessing && state.bufferedRequest) clearBuffer(this, state);
+  }
+};
+
+Writable.prototype.setDefaultEncoding = function setDefaultEncoding(encoding) {
+  // node::ParseEncoding() requires lower case.
+  if (typeof encoding === 'string') encoding = encoding.toLowerCase();
+  if (!(['hex', 'utf8', 'utf-8', 'ascii', 'binary', 'base64', 'ucs2', 'ucs-2', 'utf16le', 'utf-16le', 'raw'].indexOf((encoding + '').toLowerCase()) > -1)) throw new TypeError('Unknown encoding: ' + encoding);
+  this._writableState.defaultEncoding = encoding;
+  return this;
+};
+
+function decodeChunk(state, chunk, encoding) {
+  if (!state.objectMode && state.decodeStrings !== false && typeof chunk === 'string') {
+    chunk = Buffer.from(chunk, encoding);
+  }
+  return chunk;
+}
+
+Object.defineProperty(Writable.prototype, 'writableHighWaterMark', {
+  // making it explicit this property is not enumerable
+  // because otherwise some prototype manipulation in
+  // userland will fail
+  enumerable: false,
+  get: function () {
+    return this._writableState.highWaterMark;
+  }
+});
+
+// if we're already writing something, then just put this
+// in the queue, and wait our turn.  Otherwise, call _write
+// If we return false, then we need a drain event, so set that flag.
+function writeOrBuffer(stream, state, isBuf, chunk, encoding, cb) {
+  if (!isBuf) {
+    var newChunk = decodeChunk(state, chunk, encoding);
+    if (chunk !== newChunk) {
+      isBuf = true;
+      encoding = 'buffer';
+      chunk = newChunk;
+    }
+  }
+  var len = state.objectMode ? 1 : chunk.length;
+
+  state.length += len;
+
+  var ret = state.length < state.highWaterMark;
+  // we must ensure that previous needDrain will not be reset to false.
+  if (!ret) state.needDrain = true;
+
+  if (state.writing || state.corked) {
+    var last = state.lastBufferedRequest;
+    state.lastBufferedRequest = {
+      chunk: chunk,
+      encoding: encoding,
+      isBuf: isBuf,
+      callback: cb,
+      next: null
+    };
+    if (last) {
+      last.next = state.lastBufferedRequest;
+    } else {
+      state.bufferedRequest = state.lastBufferedRequest;
+    }
+    state.bufferedRequestCount += 1;
+  } else {
+    doWrite(stream, state, false, len, chunk, encoding, cb);
+  }
+
+  return ret;
+}
+
+function doWrite(stream, state, writev, len, chunk, encoding, cb) {
+  state.writelen = len;
+  state.writecb = cb;
+  state.writing = true;
+  state.sync = true;
+  if (writev) stream._writev(chunk, state.onwrite);else stream._write(chunk, encoding, state.onwrite);
+  state.sync = false;
+}
+
+function onwriteError(stream, state, sync, er, cb) {
+  --state.pendingcb;
+
+  if (sync) {
+    // defer the callback if we are being called synchronously
+    // to avoid piling up things on the stack
+    pna.nextTick(cb, er);
+    // this can emit finish, and it will always happen
+    // after error
+    pna.nextTick(finishMaybe, stream, state);
+    stream._writableState.errorEmitted = true;
+    stream.emit('error', er);
+  } else {
+    // the caller expect this to happen before if
+    // it is async
+    cb(er);
+    stream._writableState.errorEmitted = true;
+    stream.emit('error', er);
+    // this can emit finish, but finish must
+    // always follow error
+    finishMaybe(stream, state);
+  }
+}
+
+function onwriteStateUpdate(state) {
+  state.writing = false;
+  state.writecb = null;
+  state.length -= state.writelen;
+  state.writelen = 0;
+}
+
+function onwrite(stream, er) {
+  var state = stream._writableState;
+  var sync = state.sync;
+  var cb = state.writecb;
+
+  onwriteStateUpdate(state);
+
+  if (er) onwriteError(stream, state, sync, er, cb);else {
+    // Check if we're actually ready to finish, but don't emit yet
+    var finished = needFinish(state);
+
+    if (!finished && !state.corked && !state.bufferProcessing && state.bufferedRequest) {
+      clearBuffer(stream, state);
+    }
+
+    if (sync) {
+      /*<replacement>*/
+      asyncWrite(afterWrite, stream, state, finished, cb);
+      /*</replacement>*/
+    } else {
+      afterWrite(stream, state, finished, cb);
+    }
+  }
+}
+
+function afterWrite(stream, state, finished, cb) {
+  if (!finished) onwriteDrain(stream, state);
+  state.pendingcb--;
+  cb();
+  finishMaybe(stream, state);
+}
+
+// Must force callback to be called on nextTick, so that we don't
+// emit 'drain' before the write() consumer gets the 'false' return
+// value, and has a chance to attach a 'drain' listener.
+function onwriteDrain(stream, state) {
+  if (state.length === 0 && state.needDrain) {
+    state.needDrain = false;
+    stream.emit('drain');
+  }
+}
+
+// if there's something in the buffer waiting, then process it
+function clearBuffer(stream, state) {
+  state.bufferProcessing = true;
+  var entry = state.bufferedRequest;
+
+  if (stream._writev && entry && entry.next) {
+    // Fast case, write everything using _writev()
+    var l = state.bufferedRequestCount;
+    var buffer = new Array(l);
+    var holder = state.corkedRequestsFree;
+    holder.entry = entry;
+
+    var count = 0;
+    var allBuffers = true;
+    while (entry) {
+      buffer[count] = entry;
+      if (!entry.isBuf) allBuffers = false;
+      entry = entry.next;
+      count += 1;
+    }
+    buffer.allBuffers = allBuffers;
+
+    doWrite(stream, state, true, state.length, buffer, '', holder.finish);
+
+    // doWrite is almost always async, defer these to save a bit of time
+    // as the hot path ends with doWrite
+    state.pendingcb++;
+    state.lastBufferedRequest = null;
+    if (holder.next) {
+      state.corkedRequestsFree = holder.next;
+      holder.next = null;
+    } else {
+      state.corkedRequestsFree = new CorkedRequest(state);
+    }
+    state.bufferedRequestCount = 0;
+  } else {
+    // Slow case, write chunks one-by-one
+    while (entry) {
+      var chunk = entry.chunk;
+      var encoding = entry.encoding;
+      var cb = entry.callback;
+      var len = state.objectMode ? 1 : chunk.length;
+
+      doWrite(stream, state, false, len, chunk, encoding, cb);
+      entry = entry.next;
+      state.bufferedRequestCount--;
+      // if we didn't call the onwrite immediately, then
+      // it means that we need to wait until it does.
+      // also, that means that the chunk and cb are currently
+      // being processed, so move the buffer counter past them.
+      if (state.writing) {
+        break;
+      }
+    }
+
+    if (entry === null) state.lastBufferedRequest = null;
+  }
+
+  state.bufferedRequest = entry;
+  state.bufferProcessing = false;
+}
+
+Writable.prototype._write = function (chunk, encoding, cb) {
+  cb(new Error('_write() is not implemented'));
+};
+
+Writable.prototype._writev = null;
+
+Writable.prototype.end = function (chunk, encoding, cb) {
+  var state = this._writableState;
+
+  if (typeof chunk === 'function') {
+    cb = chunk;
+    chunk = null;
+    encoding = null;
+  } else if (typeof encoding === 'function') {
+    cb = encoding;
+    encoding = null;
+  }
+
+  if (chunk !== null && chunk !== undefined) this.write(chunk, encoding);
+
+  // .end() fully uncorks
+  if (state.corked) {
+    state.corked = 1;
+    this.uncork();
+  }
+
+  // ignore unnecessary end() calls.
+  if (!state.ending && !state.finished) endWritable(this, state, cb);
+};
+
+function needFinish(state) {
+  return state.ending && state.length === 0 && state.bufferedRequest === null && !state.finished && !state.writing;
+}
+function callFinal(stream, state) {
+  stream._final(function (err) {
+    state.pendingcb--;
+    if (err) {
+      stream.emit('error', err);
+    }
+    state.prefinished = true;
+    stream.emit('prefinish');
+    finishMaybe(stream, state);
+  });
+}
+function prefinish(stream, state) {
+  if (!state.prefinished && !state.finalCalled) {
+    if (typeof stream._final === 'function') {
+      state.pendingcb++;
+      state.finalCalled = true;
+      pna.nextTick(callFinal, stream, state);
+    } else {
+      state.prefinished = true;
+      stream.emit('prefinish');
+    }
+  }
+}
+
+function finishMaybe(stream, state) {
+  var need = needFinish(state);
+  if (need) {
+    prefinish(stream, state);
+    if (state.pendingcb === 0) {
+      state.finished = true;
+      stream.emit('finish');
+    }
+  }
+  return need;
+}
+
+function endWritable(stream, state, cb) {
+  state.ending = true;
+  finishMaybe(stream, state);
+  if (cb) {
+    if (state.finished) pna.nextTick(cb);else stream.once('finish', cb);
+  }
+  state.ended = true;
+  stream.writable = false;
+}
+
+function onCorkedFinish(corkReq, state, err) {
+  var entry = corkReq.entry;
+  corkReq.entry = null;
+  while (entry) {
+    var cb = entry.callback;
+    state.pendingcb--;
+    cb(err);
+    entry = entry.next;
+  }
+  if (state.corkedRequestsFree) {
+    state.corkedRequestsFree.next = corkReq;
+  } else {
+    state.corkedRequestsFree = corkReq;
+  }
+}
+
+Object.defineProperty(Writable.prototype, 'destroyed', {
+  get: function () {
+    if (this._writableState === undefined) {
+      return false;
+    }
+    return this._writableState.destroyed;
+  },
+  set: function (value) {
+    // we ignore the value if the stream
+    // has not been initialized yet
+    if (!this._writableState) {
+      return;
+    }
+
+    // backward compatibility, the user is explicitly
+    // managing destroyed
+    this._writableState.destroyed = value;
+  }
+});
+
+Writable.prototype.destroy = destroyImpl.destroy;
+Writable.prototype._undestroy = destroyImpl.undestroy;
+Writable.prototype._destroy = function (err, cb) {
+  this.end();
+  cb(err);
+};
+});
+___scope___.file("lib/_stream_transform.js", function(exports, require, module, __filename, __dirname){
+
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// a transform stream is a readable/writable stream where you do
+// something with the data.  Sometimes it's called a "filter",
+// but that's not a great name for it, since that implies a thing where
+// some bits pass through, and others are simply ignored.  (That would
+// be a valid example of a transform, of course.)
+//
+// While the output is causally related to the input, it's not a
+// necessarily symmetric or synchronous transformation.  For example,
+// a zlib stream might take multiple plain-text writes(), and then
+// emit a single compressed chunk some time in the future.
+//
+// Here's how this works:
+//
+// The Transform stream has all the aspects of the readable and writable
+// stream classes.  When you write(chunk), that calls _write(chunk,cb)
+// internally, and returns false if there's a lot of pending writes
+// buffered up.  When you call read(), that calls _read(n) until
+// there's enough pending readable data buffered up.
+//
+// In a transform stream, the written data is placed in a buffer.  When
+// _read(n) is called, it transforms the queued up data, calling the
+// buffered _write cb's as it consumes chunks.  If consuming a single
+// written chunk would result in multiple output chunks, then the first
+// outputted bit calls the readcb, and subsequent chunks just go into
+// the read buffer, and will cause it to emit 'readable' if necessary.
+//
+// This way, back-pressure is actually determined by the reading side,
+// since _read has to be called to start processing a new chunk.  However,
+// a pathological inflate type of transform can cause excessive buffering
+// here.  For example, imagine a stream where every byte of input is
+// interpreted as an integer from 0-255, and then results in that many
+// bytes of output.  Writing the 4 bytes {ff,ff,ff,ff} would result in
+// 1kb of data being output.  In this case, you could write a very small
+// amount of input, and end up with a very large amount of output.  In
+// such a pathological inflating mechanism, there'd be no way to tell
+// the system to stop doing the transform.  A single 4MB write could
+// cause the system to run out of memory.
+//
+// However, even in such a pathological case, only a single written chunk
+// would be consumed, and then the rest would wait (un-transformed) until
+// the results of the previous transformed chunk were consumed.
+
+'use strict';
+
+module.exports = Transform;
+
+var Duplex = require('./_stream_duplex');
+
+/*<replacement>*/
+var util = Object.create(require('core-util-is'));
+util.inherits = require('inherits');
+/*</replacement>*/
+
+util.inherits(Transform, Duplex);
+
+function afterTransform(er, data) {
+  var ts = this._transformState;
+  ts.transforming = false;
+
+  var cb = ts.writecb;
+
+  if (!cb) {
+    return this.emit('error', new Error('write callback called multiple times'));
+  }
+
+  ts.writechunk = null;
+  ts.writecb = null;
+
+  if (data != null) // single equals check for both `null` and `undefined`
+    this.push(data);
+
+  cb(er);
+
+  var rs = this._readableState;
+  rs.reading = false;
+  if (rs.needReadable || rs.length < rs.highWaterMark) {
+    this._read(rs.highWaterMark);
+  }
+}
+
+function Transform(options) {
+  if (!(this instanceof Transform)) return new Transform(options);
+
+  Duplex.call(this, options);
+
+  this._transformState = {
+    afterTransform: afterTransform.bind(this),
+    needTransform: false,
+    transforming: false,
+    writecb: null,
+    writechunk: null,
+    writeencoding: null
+  };
+
+  // start out asking for a readable event once data is transformed.
+  this._readableState.needReadable = true;
+
+  // we have implemented the _read method, and done the other things
+  // that Readable wants before the first _read call, so unset the
+  // sync guard flag.
+  this._readableState.sync = false;
+
+  if (options) {
+    if (typeof options.transform === 'function') this._transform = options.transform;
+
+    if (typeof options.flush === 'function') this._flush = options.flush;
+  }
+
+  // When the writable side finishes, then flush out anything remaining.
+  this.on('prefinish', prefinish);
+}
+
+function prefinish() {
+  var _this = this;
+
+  if (typeof this._flush === 'function') {
+    this._flush(function (er, data) {
+      done(_this, er, data);
+    });
+  } else {
+    done(this, null, null);
+  }
+}
+
+Transform.prototype.push = function (chunk, encoding) {
+  this._transformState.needTransform = false;
+  return Duplex.prototype.push.call(this, chunk, encoding);
+};
+
+// This is the part where you do stuff!
+// override this function in implementation classes.
+// 'chunk' is an input chunk.
+//
+// Call `push(newChunk)` to pass along transformed output
+// to the readable side.  You may call 'push' zero or more times.
+//
+// Call `cb(err)` when you are done with this chunk.  If you pass
+// an error, then that'll put the hurt on the whole operation.  If you
+// never call cb(), then you'll never get another chunk.
+Transform.prototype._transform = function (chunk, encoding, cb) {
+  throw new Error('_transform() is not implemented');
+};
+
+Transform.prototype._write = function (chunk, encoding, cb) {
+  var ts = this._transformState;
+  ts.writecb = cb;
+  ts.writechunk = chunk;
+  ts.writeencoding = encoding;
+  if (!ts.transforming) {
+    var rs = this._readableState;
+    if (ts.needTransform || rs.needReadable || rs.length < rs.highWaterMark) this._read(rs.highWaterMark);
+  }
+};
+
+// Doesn't matter what the args are here.
+// _transform does all the work.
+// That we got here means that the readable side wants more data.
+Transform.prototype._read = function (n) {
+  var ts = this._transformState;
+
+  if (ts.writechunk !== null && ts.writecb && !ts.transforming) {
+    ts.transforming = true;
+    this._transform(ts.writechunk, ts.writeencoding, ts.afterTransform);
+  } else {
+    // mark that we need a transform, so that any data that comes in
+    // will get processed, now that we've asked for it.
+    ts.needTransform = true;
+  }
+};
+
+Transform.prototype._destroy = function (err, cb) {
+  var _this2 = this;
+
+  Duplex.prototype._destroy.call(this, err, function (err2) {
+    cb(err2);
+    _this2.emit('close');
+  });
+};
+
+function done(stream, er, data) {
+  if (er) return stream.emit('error', er);
+
+  if (data != null) // single equals check for both `null` and `undefined`
+    stream.push(data);
+
+  // if there's nothing in the write buffer, then that means
+  // that nothing more will ever be provided
+  if (stream._writableState.length) throw new Error('Calling transform done when ws.length != 0');
+
+  if (stream._transformState.transforming) throw new Error('Calling transform done when still transforming');
+
+  return stream.push(null);
+}
+});
+___scope___.file("lib/_stream_passthrough.js", function(exports, require, module, __filename, __dirname){
+
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// a passthrough stream.
+// basically just the most minimal sort of Transform stream.
+// Every written chunk gets output as-is.
+
+'use strict';
+
+module.exports = PassThrough;
+
+var Transform = require('./_stream_transform');
+
+/*<replacement>*/
+var util = Object.create(require('core-util-is'));
+util.inherits = require('inherits');
+/*</replacement>*/
+
+util.inherits(PassThrough, Transform);
+
+function PassThrough(options) {
+  if (!(this instanceof PassThrough)) return new PassThrough(options);
+
+  Transform.call(this, options);
+}
+
+PassThrough.prototype._transform = function (chunk, encoding, cb) {
+  cb(null, chunk);
+};
+});
+___scope___.file("writable.js", function(exports, require, module, __filename, __dirname){
+/* fuse:injection: */ var process = require("process");
+var Stream = require("stream")
+var Writable = require("./lib/_stream_writable.js")
+
+if (process.env.READABLE_STREAM === 'disable') {
+  module.exports = Stream && Stream.Writable || Writable
+} else {
+  module.exports = Writable
+}
+
+});
+___scope___.file("duplex.js", function(exports, require, module, __filename, __dirname){
+
+module.exports = require("~/readable-browser.js").Duplex
+
+});
+___scope___.file("readable-browser.js", function(exports, require, module, __filename, __dirname){
+
+exports = module.exports = require('./lib/_stream_readable.js');
+exports.Stream = exports;
+exports.Readable = exports;
+exports.Writable = require('./lib/_stream_writable.js');
+exports.Duplex = require('./lib/_stream_duplex.js');
+exports.Transform = require('./lib/_stream_transform.js');
+exports.PassThrough = require('./lib/_stream_passthrough.js');
+
+});
+___scope___.file("transform.js", function(exports, require, module, __filename, __dirname){
+
+module.exports = require("~/readable-browser.js").Transform
+
+});
+___scope___.file("passthrough.js", function(exports, require, module, __filename, __dirname){
+
+module.exports = require("~/readable-browser.js").PassThrough
+
+});
+return ___scope___.entry = "readable.js";
+});
+FuseBox.pkg("safe-buffer", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+/* eslint-disable node/no-deprecated-api */
+var buffer = require('buffer')
+var Buffer = buffer.Buffer
+
+// alternative to using Object.keys for old browsers
+function copyProps (src, dst) {
+  for (var key in src) {
+    dst[key] = src[key]
+  }
+}
+if (Buffer.from && Buffer.alloc && Buffer.allocUnsafe && Buffer.allocUnsafeSlow) {
+  module.exports = buffer
+} else {
+  // Copy properties from require('buffer')
+  copyProps(buffer, exports)
+  exports.Buffer = SafeBuffer
+}
+
+function SafeBuffer (arg, encodingOrOffset, length) {
+  return Buffer(arg, encodingOrOffset, length)
+}
+
+// Copy static methods from Buffer
+copyProps(Buffer, SafeBuffer)
+
+SafeBuffer.from = function (arg, encodingOrOffset, length) {
+  if (typeof arg === 'number') {
+    throw new TypeError('Argument must not be a number')
+  }
+  return Buffer(arg, encodingOrOffset, length)
+}
+
+SafeBuffer.alloc = function (size, fill, encoding) {
+  if (typeof size !== 'number') {
+    throw new TypeError('Argument must be a number')
+  }
+  var buf = Buffer(size)
+  if (fill !== undefined) {
+    if (typeof encoding === 'string') {
+      buf.fill(fill, encoding)
+    } else {
+      buf.fill(fill)
+    }
+  } else {
+    buf.fill(0)
+  }
+  return buf
+}
+
+SafeBuffer.allocUnsafe = function (size) {
+  if (typeof size !== 'number') {
+    throw new TypeError('Argument must be a number')
+  }
+  return Buffer(size)
+}
+
+SafeBuffer.allocUnsafeSlow = function (size) {
+  if (typeof size !== 'number') {
+    throw new TypeError('Argument must be a number')
+  }
+  return buffer.SlowBuffer(size)
+}
+
+});
+return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("stream-browserify", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+module.exports = Stream;
+
+var EE = require('events').EventEmitter;
+var inherits = require('inherits');
+
+inherits(Stream, EE);
+Stream.Readable = require('readable-stream/readable.js');
+Stream.Writable = require('readable-stream/writable.js');
+Stream.Duplex = require('readable-stream/duplex.js');
+Stream.Transform = require('readable-stream/transform.js');
+Stream.PassThrough = require('readable-stream/passthrough.js');
+
+// Backwards-compat with node 0.4.x
+Stream.Stream = Stream;
+
+
+
+// old-style streams.  Note that the pipe method (the only relevant
+// part of this class) is overridden in the Readable class.
+
+function Stream() {
+  EE.call(this);
+}
+
+Stream.prototype.pipe = function(dest, options) {
+  var source = this;
+
+  function ondata(chunk) {
+    if (dest.writable) {
+      if (false === dest.write(chunk) && source.pause) {
+        source.pause();
+      }
+    }
+  }
+
+  source.on('data', ondata);
+
+  function ondrain() {
+    if (source.readable && source.resume) {
+      source.resume();
+    }
+  }
+
+  dest.on('drain', ondrain);
+
+  // If the 'end' option is not supplied, dest.end() will be called when
+  // source gets the 'end' or 'close' events.  Only dest.end() once.
+  if (!dest._isStdio && (!options || options.end !== false)) {
+    source.on('end', onend);
+    source.on('close', onclose);
+  }
+
+  var didOnEnd = false;
+  function onend() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    dest.end();
+  }
+
+
+  function onclose() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    if (typeof dest.destroy === 'function') dest.destroy();
+  }
+
+  // don't leave dangling pipes when there are errors.
+  function onerror(er) {
+    cleanup();
+    if (EE.listenerCount(this, 'error') === 0) {
+      throw er; // Unhandled stream error in pipe.
+    }
+  }
+
+  source.on('error', onerror);
+  dest.on('error', onerror);
+
+  // remove all the event listeners that were added.
+  function cleanup() {
+    source.removeListener('data', ondata);
+    dest.removeListener('drain', ondrain);
+
+    source.removeListener('end', onend);
+    source.removeListener('close', onclose);
+
+    source.removeListener('error', onerror);
+    dest.removeListener('error', onerror);
+
+    source.removeListener('end', cleanup);
+    source.removeListener('close', cleanup);
+
+    dest.removeListener('close', cleanup);
+  }
+
+  source.on('end', cleanup);
+  source.on('close', cleanup);
+
+  dest.on('close', cleanup);
+
+  dest.emit('pipe', source);
+
+  // Allow for unix-like usage: A.pipe(B).pipe(C)
+  return dest;
+};
+
+});
+return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("stream", {}, function(___scope___){
+___scope___.file("index.js", function(exports, require, module, __filename, __dirname){
+
+if (FuseBox.isServer) {
+  module.exports = global.require("stream");
+} else {
+  module.exports = require("stream-browserify");
+}
+
+});
+return ___scope___.entry = "index.js";
+});
+FuseBox.pkg("string_decoder", {}, function(___scope___){
+___scope___.file("lib/string_decoder.js", function(exports, require, module, __filename, __dirname){
+
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+'use strict';
+
+/*<replacement>*/
+
+var Buffer = require('safe-buffer').Buffer;
+/*</replacement>*/
+
+var isEncoding = Buffer.isEncoding || function (encoding) {
+  encoding = '' + encoding;
+  switch (encoding && encoding.toLowerCase()) {
+    case 'hex':case 'utf8':case 'utf-8':case 'ascii':case 'binary':case 'base64':case 'ucs2':case 'ucs-2':case 'utf16le':case 'utf-16le':case 'raw':
+      return true;
+    default:
+      return false;
+  }
+};
+
+function _normalizeEncoding(enc) {
+  if (!enc) return 'utf8';
+  var retried;
+  while (true) {
+    switch (enc) {
+      case 'utf8':
+      case 'utf-8':
+        return 'utf8';
+      case 'ucs2':
+      case 'ucs-2':
+      case 'utf16le':
+      case 'utf-16le':
+        return 'utf16le';
+      case 'latin1':
+      case 'binary':
+        return 'latin1';
+      case 'base64':
+      case 'ascii':
+      case 'hex':
+        return enc;
+      default:
+        if (retried) return; // undefined
+        enc = ('' + enc).toLowerCase();
+        retried = true;
+    }
+  }
+};
+
+// Do not cache `Buffer.isEncoding` when checking encoding names as some
+// modules monkey-patch it to support additional encodings
+function normalizeEncoding(enc) {
+  var nenc = _normalizeEncoding(enc);
+  if (typeof nenc !== 'string' && (Buffer.isEncoding === isEncoding || !isEncoding(enc))) throw new Error('Unknown encoding: ' + enc);
+  return nenc || enc;
+}
+
+// StringDecoder provides an interface for efficiently splitting a series of
+// buffers into a series of JS strings without breaking apart multi-byte
+// characters.
+exports.StringDecoder = StringDecoder;
+function StringDecoder(encoding) {
+  this.encoding = normalizeEncoding(encoding);
+  var nb;
+  switch (this.encoding) {
+    case 'utf16le':
+      this.text = utf16Text;
+      this.end = utf16End;
+      nb = 4;
+      break;
+    case 'utf8':
+      this.fillLast = utf8FillLast;
+      nb = 4;
+      break;
+    case 'base64':
+      this.text = base64Text;
+      this.end = base64End;
+      nb = 3;
+      break;
+    default:
+      this.write = simpleWrite;
+      this.end = simpleEnd;
+      return;
+  }
+  this.lastNeed = 0;
+  this.lastTotal = 0;
+  this.lastChar = Buffer.allocUnsafe(nb);
+}
+
+StringDecoder.prototype.write = function (buf) {
+  if (buf.length === 0) return '';
+  var r;
+  var i;
+  if (this.lastNeed) {
+    r = this.fillLast(buf);
+    if (r === undefined) return '';
+    i = this.lastNeed;
+    this.lastNeed = 0;
+  } else {
+    i = 0;
+  }
+  if (i < buf.length) return r ? r + this.text(buf, i) : this.text(buf, i);
+  return r || '';
+};
+
+StringDecoder.prototype.end = utf8End;
+
+// Returns only complete characters in a Buffer
+StringDecoder.prototype.text = utf8Text;
+
+// Attempts to complete a partial non-UTF-8 character using bytes from a Buffer
+StringDecoder.prototype.fillLast = function (buf) {
+  if (this.lastNeed <= buf.length) {
+    buf.copy(this.lastChar, this.lastTotal - this.lastNeed, 0, this.lastNeed);
+    return this.lastChar.toString(this.encoding, 0, this.lastTotal);
+  }
+  buf.copy(this.lastChar, this.lastTotal - this.lastNeed, 0, buf.length);
+  this.lastNeed -= buf.length;
+};
+
+// Checks the type of a UTF-8 byte, whether it's ASCII, a leading byte, or a
+// continuation byte. If an invalid byte is detected, -2 is returned.
+function utf8CheckByte(byte) {
+  if (byte <= 0x7F) return 0;else if (byte >> 5 === 0x06) return 2;else if (byte >> 4 === 0x0E) return 3;else if (byte >> 3 === 0x1E) return 4;
+  return byte >> 6 === 0x02 ? -1 : -2;
+}
+
+// Checks at most 3 bytes at the end of a Buffer in order to detect an
+// incomplete multi-byte UTF-8 character. The total number of bytes (2, 3, or 4)
+// needed to complete the UTF-8 character (if applicable) are returned.
+function utf8CheckIncomplete(self, buf, i) {
+  var j = buf.length - 1;
+  if (j < i) return 0;
+  var nb = utf8CheckByte(buf[j]);
+  if (nb >= 0) {
+    if (nb > 0) self.lastNeed = nb - 1;
+    return nb;
+  }
+  if (--j < i || nb === -2) return 0;
+  nb = utf8CheckByte(buf[j]);
+  if (nb >= 0) {
+    if (nb > 0) self.lastNeed = nb - 2;
+    return nb;
+  }
+  if (--j < i || nb === -2) return 0;
+  nb = utf8CheckByte(buf[j]);
+  if (nb >= 0) {
+    if (nb > 0) {
+      if (nb === 2) nb = 0;else self.lastNeed = nb - 3;
+    }
+    return nb;
+  }
+  return 0;
+}
+
+// Validates as many continuation bytes for a multi-byte UTF-8 character as
+// needed or are available. If we see a non-continuation byte where we expect
+// one, we "replace" the validated continuation bytes we've seen so far with
+// a single UTF-8 replacement character ('\ufffd'), to match v8's UTF-8 decoding
+// behavior. The continuation byte check is included three times in the case
+// where all of the continuation bytes for a character exist in the same buffer.
+// It is also done this way as a slight performance increase instead of using a
+// loop.
+function utf8CheckExtraBytes(self, buf, p) {
+  if ((buf[0] & 0xC0) !== 0x80) {
+    self.lastNeed = 0;
+    return '\ufffd';
+  }
+  if (self.lastNeed > 1 && buf.length > 1) {
+    if ((buf[1] & 0xC0) !== 0x80) {
+      self.lastNeed = 1;
+      return '\ufffd';
+    }
+    if (self.lastNeed > 2 && buf.length > 2) {
+      if ((buf[2] & 0xC0) !== 0x80) {
+        self.lastNeed = 2;
+        return '\ufffd';
+      }
+    }
+  }
+}
+
+// Attempts to complete a multi-byte UTF-8 character using bytes from a Buffer.
+function utf8FillLast(buf) {
+  var p = this.lastTotal - this.lastNeed;
+  var r = utf8CheckExtraBytes(this, buf, p);
+  if (r !== undefined) return r;
+  if (this.lastNeed <= buf.length) {
+    buf.copy(this.lastChar, p, 0, this.lastNeed);
+    return this.lastChar.toString(this.encoding, 0, this.lastTotal);
+  }
+  buf.copy(this.lastChar, p, 0, buf.length);
+  this.lastNeed -= buf.length;
+}
+
+// Returns all complete UTF-8 characters in a Buffer. If the Buffer ended on a
+// partial character, the character's bytes are buffered until the required
+// number of bytes are available.
+function utf8Text(buf, i) {
+  var total = utf8CheckIncomplete(this, buf, i);
+  if (!this.lastNeed) return buf.toString('utf8', i);
+  this.lastTotal = total;
+  var end = buf.length - (total - this.lastNeed);
+  buf.copy(this.lastChar, 0, end);
+  return buf.toString('utf8', i, end);
+}
+
+// For UTF-8, a replacement character is added when ending on a partial
+// character.
+function utf8End(buf) {
+  var r = buf && buf.length ? this.write(buf) : '';
+  if (this.lastNeed) return r + '\ufffd';
+  return r;
+}
+
+// UTF-16LE typically needs two bytes per character, but even if we have an even
+// number of bytes available, we need to check if we end on a leading/high
+// surrogate. In that case, we need to wait for the next two bytes in order to
+// decode the last character properly.
+function utf16Text(buf, i) {
+  if ((buf.length - i) % 2 === 0) {
+    var r = buf.toString('utf16le', i);
+    if (r) {
+      var c = r.charCodeAt(r.length - 1);
+      if (c >= 0xD800 && c <= 0xDBFF) {
+        this.lastNeed = 2;
+        this.lastTotal = 4;
+        this.lastChar[0] = buf[buf.length - 2];
+        this.lastChar[1] = buf[buf.length - 1];
+        return r.slice(0, -1);
+      }
+    }
+    return r;
+  }
+  this.lastNeed = 1;
+  this.lastTotal = 2;
+  this.lastChar[0] = buf[buf.length - 1];
+  return buf.toString('utf16le', i, buf.length - 1);
+}
+
+// For UTF-16LE we do not explicitly append special replacement characters if we
+// end on a partial character, we simply let v8 handle that.
+function utf16End(buf) {
+  var r = buf && buf.length ? this.write(buf) : '';
+  if (this.lastNeed) {
+    var end = this.lastTotal - this.lastNeed;
+    return r + this.lastChar.toString('utf16le', 0, end);
+  }
+  return r;
+}
+
+function base64Text(buf, i) {
+  var n = (buf.length - i) % 3;
+  if (n === 0) return buf.toString('base64', i);
+  this.lastNeed = 3 - n;
+  this.lastTotal = 3;
+  if (n === 1) {
+    this.lastChar[0] = buf[buf.length - 1];
+  } else {
+    this.lastChar[0] = buf[buf.length - 2];
+    this.lastChar[1] = buf[buf.length - 1];
+  }
+  return buf.toString('base64', i, buf.length - n);
+}
+
+function base64End(buf) {
+  var r = buf && buf.length ? this.write(buf) : '';
+  if (this.lastNeed) return r + this.lastChar.toString('base64', 0, 3 - this.lastNeed);
+  return r;
+}
+
+// Pass bytes on through for single-byte encodings (e.g. ascii, latin1, hex)
+function simpleWrite(buf) {
+  return buf.toString(this.encoding);
+}
+
+function simpleEnd(buf) {
+  return buf && buf.length ? this.write(buf) : '';
+}
+});
+return ___scope___.entry = "lib/string_decoder.js";
+});
+FuseBox.pkg("util-deprecate", {}, function(___scope___){
+___scope___.file("browser.js", function(exports, require, module, __filename, __dirname){
+
+
+/**
+ * Module exports.
+ */
+
+module.exports = deprecate;
+
+/**
+ * Mark that a method should not be used.
+ * Returns a modified function which warns once by default.
+ *
+ * If `localStorage.noDeprecation = true` is set, then it is a no-op.
+ *
+ * If `localStorage.throwDeprecation = true` is set, then deprecated functions
+ * will throw an Error when invoked.
+ *
+ * If `localStorage.traceDeprecation = true` is set, then deprecated functions
+ * will invoke `console.trace()` instead of `console.error()`.
+ *
+ * @param {Function} fn - the function to deprecate
+ * @param {String} msg - the string to print to the console when `fn` is invoked
+ * @returns {Function} a new "deprecated" version of `fn`
+ * @api public
+ */
+
+function deprecate (fn, msg) {
+  if (config('noDeprecation')) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (config('throwDeprecation')) {
+        throw new Error(msg);
+      } else if (config('traceDeprecation')) {
+        console.trace(msg);
+      } else {
+        console.warn(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+}
+
+/**
+ * Checks `localStorage` for boolean values for the given `name`.
+ *
+ * @param {String} name
+ * @returns {Boolean}
+ * @api private
+ */
+
+function config (name) {
+  // accessing global.localStorage can trigger a DOMException in sandboxed iframes
+  try {
+    if (!global.localStorage) return false;
+  } catch (_) {
+    return false;
+  }
+  var val = global.localStorage[name];
+  if (null == val) return false;
+  return String(val).toLowerCase() === 'true';
+}
+
+});
+return ___scope___.entry = "browser.js";
 });
 FuseBox.import("fusebox-hot-reload").connect(4444, "", false)
 
