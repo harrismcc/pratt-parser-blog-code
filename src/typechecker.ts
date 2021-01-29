@@ -34,7 +34,18 @@ class CheckBinary implements TypeChecker {
   check(node: AST.BinaryOperationNode): TypeError[] {
     const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
     if (node.left.type != node.right.type) {
+      // TODO: debug this so that these problems are fixed:
+      //  1) returns an error on valid, 3-operand statements like "1 + 2 + 3"
+      //  2) does not return an error when you do things like "True + False" (wrong binary op)
       errors.push(new TypeError("incompatible types for binary operator", node.pos));
+    }
+    else {
+      if (node.left.type == "Boolean" && node.operator != "^") {
+        errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+      }
+      else if (node.left.type == "Number" && node.operator == "^") {
+        errors.push(new TypeError("incompatible operation for number operands", node.pos));
+      }
     }
     return errors;
   }

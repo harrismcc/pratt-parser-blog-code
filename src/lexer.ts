@@ -120,6 +120,8 @@ export type BinaryOperationTokenType =
   | '*'
   | '/'
   | '^'
+  // NOTE: we are considering the "^" operation to be a strictly boolean operation
+  //       it will represent an "or" operation
 
 export type TokenType =
   | BinaryOperationTokenType
