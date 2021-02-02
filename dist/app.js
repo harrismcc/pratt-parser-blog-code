@@ -128,6 +128,10 @@ function getDefaultToken(stream, state) {
         }
         return emitToken('COMMENT');
     }
+    // ******* THIS IS WHERE THE TEST FUNCTION IS *************
+    if (stream.match(/TEST/)) {
+        return emitToken('FUNCTION');
+    }
     stream.next();
     return emitToken('ERROR');
 }
@@ -656,6 +660,7 @@ class Parser extends AbstractParser {
             TRUE: new Parselet.BooleanParselet(true),
             FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
+            FUNCTION: new Parselet.FunctionParselet(),
         };
     }
     consequentMap() {
@@ -679,7 +684,7 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
+exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
     parse(_parser, _tokens, token) {
@@ -737,6 +742,17 @@ class BinaryOperatorParselet extends ConsequentParselet {
     }
 }
 exports.BinaryOperatorParselet = BinaryOperatorParselet;
+// ************** THIS IS WHERE THE FUNCTION PARSELET LIVES ******************
+class FunctionParselet {
+    parse(_parser, _tokens, token) {
+        return {
+            type: 'Function',
+            outputType: { status: 'Maybe-Undefined', value: true },
+            pos: position_1.token2pos(token)
+        };
+    }
+}
+exports.FunctionParselet = FunctionParselet;
 
 });
 ___scope___.file("src/position.js", function(exports, require, module, __filename, __dirname){
@@ -846,10 +862,35 @@ class CheckBinary {
     check(node) {
         const errors = typecheckNode(node.left).concat(typecheckNode(node.right));
         if (node.left.type != node.right.type) {
-            // TODO: debug this so that these problems are fixed:
-            //  1) returns an error on valid, 3-operand statements like "1 + 2 + 3"
-            //  2) does not return an error when you do things like "True + False" (wrong binary op)
-            errors.push(new TypeError("incompatible types for binary operator", node.pos));
+            if (node.left.type == "BinaryOperation") {
+                errors.concat(this.check(node.left));
+                if (node.left.left.type != node.right.type) {
+                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+                }
+                // do the operator and the other node's type match
+                else if (node.right.type == "Boolean" && node.operator != "^") {
+                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+                }
+                else if (node.right.type == "Number" && node.operator == "^") {
+                    errors.push(new TypeError("incompatible operation for number operands", node.pos));
+                }
+            }
+            else if (node.right.type == "BinaryOperation") {
+                errors.concat(this.check(node.right));
+                if (node.right.left.type != node.left.type) {
+                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+                }
+                // do the operator and the other node's type match
+                else if (node.left.type == "Boolean" && node.operator != "^") {
+                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+                }
+                else if (node.left.type == "Number" && node.operator == "^") {
+                    errors.push(new TypeError("incompatible operation for number operands", node.pos));
+                }
+            }
+            else {
+                errors.push(new TypeError("incompatible types for binary operator", node.pos));
+            }
         }
         else {
             if (node.left.type == "Boolean" && node.operator != "^") {

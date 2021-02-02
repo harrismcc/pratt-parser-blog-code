@@ -34,10 +34,36 @@ class CheckBinary implements TypeChecker {
   check(node: AST.BinaryOperationNode): TypeError[] {
     const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
     if (node.left.type != node.right.type) {
-      // TODO: debug this so that these problems are fixed:
-      //  1) returns an error on valid, 3-operand statements like "1 + 2 + 3"
-      //  2) does not return an error when you do things like "True + False" (wrong binary op)
-      errors.push(new TypeError("incompatible types for binary operator", node.pos));
+      if (node.left.type == "BinaryOperation") {
+          errors.concat(this.check(node.left));
+          if (node.left.left.type != node.right.type) {
+            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+          }
+          // do the operator and the other node's type match
+          else if (node.right.type == "Boolean" && node.operator != "^") {
+            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+          }
+          else if (node.right.type == "Number" && node.operator == "^") {
+            errors.push(new TypeError("incompatible operation for number operands", node.pos));
+          }
+          
+      }
+      else if (node.right.type == "BinaryOperation") {
+          errors.concat(this.check(node.right));
+          if (node.right.left.type != node.left.type) {
+            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+          }
+          // do the operator and the other node's type match
+          else if (node.left.type == "Boolean" && node.operator != "^") {
+            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+          }
+          else if (node.left.type == "Number" && node.operator == "^") {
+            errors.push(new TypeError("incompatible operation for number operands", node.pos));
+          }
+      }
+      else {
+        errors.push(new TypeError("incompatible types for binary operator", node.pos));
+      }
     }
     else {
       if (node.left.type == "Boolean" && node.operator != "^") {

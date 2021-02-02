@@ -81,3 +81,16 @@ export class BinaryOperatorParselet extends ConsequentParselet {
     }
   }
 }
+
+// ************** THIS IS WHERE THE FUNCTION PARSELET LIVES ******************
+
+export class FunctionParselet implements InitialParselet {
+  parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
+    return {
+      type: 'Function' as 'Function',
+      outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
+                    value: true },
+      pos: token2pos(token)
+    }
+  }
+}

@@ -110,6 +110,12 @@ function getDefaultToken(
     return emitToken('COMMENT');
   }
 
+  // ******* THIS IS WHERE THE TEST FUNCTION IS *************
+  if (stream.match(/TEST/)) {
+    return emitToken('FUNCTION');
+  }
+  
+
   stream.next();
   return emitToken('ERROR');
 }
@@ -131,7 +137,8 @@ export type TokenType =
   | '('
   | ')'
   | 'COMMENT'
-  | 'ERROR';
+  | 'ERROR'
+  | 'FUNCTION';
 
 export interface Token<T extends TokenType = TokenType> {
   type: T;

@@ -33,4 +33,28 @@ export type BinaryOperationNode = {
   pos: Position;
 };
 
-export type Node = BooleanNode | NumberNode | BinaryOperationNode;
+export type FunctionNode = {
+  type: 'Function';
+  outputType: Maybe;
+  pos: Position;
+}
+
+export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode;
+
+// on to the proof of concept stuff
+
+export type MaybeDef = {
+  status: 'Definitely';
+  value: boolean;
+}
+
+export type MaybeUnd = {
+  status: 'Maybe-Undefined';
+  value: boolean;
+  // dependsOn: {varName: boolean};
+}
+
+export type Maybe = MaybeDef | MaybeUnd;
+
+
+
