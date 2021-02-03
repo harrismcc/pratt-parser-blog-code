@@ -111,10 +111,21 @@ function getDefaultToken(
   }
 
   // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-  if (stream.match(/TEST/)) {
-    return emitToken('FUNCTION');
+  if (stream.match(/test\(\)/)) {
+    return emitToken('TEST');
   }
   
+  if (stream.match(/isDefined\(test\(\)\)/)) {
+    return emitToken('DEFTEST');
+  }
+
+  if (stream.match(/isDefined\(True\)/)) {
+    return emitToken('DEFTRUE');
+  }
+
+  if (stream.match(/isDefined\(False\)/)) {
+    return emitToken('DEFFALSE');
+  }
 
   stream.next();
   return emitToken('ERROR');
@@ -129,6 +140,12 @@ export type BinaryOperationTokenType =
   // NOTE: we are considering the "^" operation to be a strictly boolean operation
   //       it will represent an "or" operation
 
+export type FunctionTokenType = 
+  | 'TEST'
+  | 'DEFTEST'
+  | 'DEFTRUE'
+  | 'DEFFALSE'
+
 export type TokenType =
   | BinaryOperationTokenType
   | 'NUMBER'
@@ -138,7 +155,7 @@ export type TokenType =
   | ')'
   | 'COMMENT'
   | 'ERROR'
-  | 'FUNCTION';
+  | FunctionTokenType;
 
 export interface Token<T extends TokenType = TokenType> {
   type: T;

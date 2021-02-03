@@ -83,9 +83,41 @@ export class BinaryOperatorParselet extends ConsequentParselet {
 }
 
 // ************** THIS IS WHERE THE FUNCTION PARSELET LIVES ******************
-
+type
+name: string;
+  arg: ArgumentNode;
+  outputType: MaybeUnd;
+  pos: Position;
 export class FunctionParselet implements InitialParselet {
+  constructor(private value: string) {}
   parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
+    if (this.value == 'test') {
+      return {
+        type: 'Function' as 'Function',
+        name: 'test',
+        arg: undefined,
+        outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
+                      value: true },
+        pos: token2pos(token)
+      }
+    }
+
+    if (this.value == 'deftest') {
+      return {
+        type: 'Function' as 'Function',
+        name: 'isDefined',
+        arg: { type: 'Function' as 'Function',
+               name: 'test',
+               arg: undefined,
+               outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
+                      value: true },
+               pos: token2pos(token) },
+        outputType: { status: 'Definitely' as 'Definitely',
+                      value: true },
+        pos: token2pos(token)
+      }
+    }
+
     return {
       type: 'Function' as 'Function',
       outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',

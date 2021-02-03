@@ -33,11 +33,16 @@ export type BinaryOperationNode = {
   pos: Position;
 };
 
+// Built to support isDefined(test()), isDefined(boolean), and test()
 export type FunctionNode = {
   type: 'Function';
-  outputType: Maybe;
+  name: string;
+  arg: ArgumentNode;
+  outputType: MaybeUnd;
   pos: Position;
 }
+
+export type ArgumentNode = FunctionNode | BooleanNode | undefined;
 
 export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode;
 
@@ -51,7 +56,7 @@ export type MaybeDef = {
 export type MaybeUnd = {
   status: 'Maybe-Undefined';
   value: boolean;
-  // dependsOn: {varName: boolean};
+  // dependsOn: {varName: boolean}; // This is for when we add variables that could affect the type
 }
 
 export type Maybe = MaybeDef | MaybeUnd;

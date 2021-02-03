@@ -77,8 +77,15 @@ class CheckBinary implements TypeChecker {
   }
 }
 
+class CheckFunction implements TypeChecker {
+  check(node: AST.FunctionNode): TypeError[] {
+    return [];
+  }
+}
+
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'Number' : new CheckNumber(),
   'Boolean' : new CheckBoolean(),
-  'BinaryOperation' : new CheckBinary()
+  'BinaryOperation' : new CheckBinary(),
+  'Function' : new CheckFunction()
 }

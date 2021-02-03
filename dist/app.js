@@ -129,8 +129,17 @@ function getDefaultToken(stream, state) {
         return emitToken('COMMENT');
     }
     // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-    if (stream.match(/TEST/)) {
-        return emitToken('FUNCTION');
+    if (stream.match(/test\(\)/)) {
+        return emitToken('TEST');
+    }
+    if (stream.match(/isDefined\(test\(\)\)/)) {
+        return emitToken('DEFTEST');
+    }
+    if (stream.match(/isDefined\(True\)/)) {
+        return emitToken('DEFTRUE');
+    }
+    if (stream.match(/isDefined\(False\)/)) {
+        return emitToken('DEFFALSE');
     }
     stream.next();
     return emitToken('ERROR');
@@ -536,6 +545,8 @@ function MakeMode(_config, _modeOptions) {
                     return 'operator';
                 case 'COMMENT':
                     return 'comment';
+                case 'FUNCTION':
+                    return 'function';
                 case 'ERROR':
                     return 'error';
                 default:
@@ -660,7 +671,10 @@ class Parser extends AbstractParser {
             TRUE: new Parselet.BooleanParselet(true),
             FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
-            FUNCTION: new Parselet.FunctionParselet(),
+            TEST: new Parselet.FunctionParselet('test'),
+            DEFTEST: new Parselet.FunctionParselet('deftest'),
+            DEFTRUE: new Parselet.FunctionParselet('deftrue'),
+            DEFFALSE: new Parselet.FunctionParselet('deffalse')
         };
     }
     consequentMap() {
@@ -743,8 +757,35 @@ class BinaryOperatorParselet extends ConsequentParselet {
 }
 exports.BinaryOperatorParselet = BinaryOperatorParselet;
 // ************** THIS IS WHERE THE FUNCTION PARSELET LIVES ******************
+type;
+name: string;
+arg: ArgumentNode;
+outputType: MaybeUnd;
+pos: Position;
 class FunctionParselet {
+    constructor(value) {
+        this.value = value;
+    }
     parse(_parser, _tokens, token) {
+        if (this.value == 'test') {
+            return {
+                type: 'Function',
+                name: 'test',
+                arg: undefined,
+                outputType: { status: 'Maybe-Undefined', value: true },
+                pos: position_1.token2pos(token)
+            };
+        }
+        if (this.value == 'deftest') {
+            return {
+                type: 'Function',
+                name: 'isDefined',
+                arg: { type: 'Function', name: 'test',
+                    arg: undefined, outputType: { status: 'Maybe-Undefined', value: true }, pos: position_1.token2pos(token) },
+                outputType: { status: 'Definitely', value: true },
+                pos: position_1.token2pos(token)
+            };
+        }
         return {
             type: 'Function',
             outputType: { status: 'Maybe-Undefined', value: true },
@@ -903,10 +944,16 @@ class CheckBinary {
         return errors;
     }
 }
+class CheckFunction {
+    check(node) {
+        return [];
+    }
+}
 const checkerMap = {
     'Number': new CheckNumber(),
     'Boolean': new CheckBoolean(),
-    'BinaryOperation': new CheckBinary()
+    'BinaryOperation': new CheckBinary(),
+    'Function': new CheckFunction()
 };
 
 });

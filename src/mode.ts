@@ -13,6 +13,7 @@ type TokenType =
   | 'comment'
   | 'string'
   | 'error'
+  | 'function'
 
 
 export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?: any): CM.Mode<State> {
@@ -50,6 +51,9 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
 
         case 'COMMENT':
           return 'comment';
+
+        case 'FUNCTION':
+          return 'function';
 
         case 'ERROR':
           return 'error';
