@@ -757,11 +757,13 @@ class BinaryOperatorParselet extends ConsequentParselet {
 }
 exports.BinaryOperatorParselet = BinaryOperatorParselet;
 // ************** THIS IS WHERE THE FUNCTION PARSELET LIVES ******************
-type;
+/*
+type
 name: string;
-arg: ArgumentNode;
-outputType: MaybeUnd;
-pos: Position;
+  arg: ArgumentNode;
+  outputType: MaybeUnd;
+  pos: Position;
+*/
 class FunctionParselet {
     constructor(value) {
         this.value = value;
@@ -786,11 +788,35 @@ class FunctionParselet {
                 pos: position_1.token2pos(token)
             };
         }
-        return {
-            type: 'Function',
-            outputType: { status: 'Maybe-Undefined', value: true },
-            pos: position_1.token2pos(token)
-        };
+        if (this.value == 'deftrue') {
+            return {
+                type: 'Function',
+                name: 'isDefined',
+                arg: { type: 'Boolean', value: true,
+                    pos: position_1.token2pos(token) },
+                outputType: { status: 'Definitely', value: true },
+                pos: position_1.token2pos(token)
+            };
+        }
+        if (this.value == 'deffalse') {
+            return {
+                type: 'Function',
+                name: 'isDefined',
+                arg: { type: 'Boolean', value: false,
+                    pos: position_1.token2pos(token) },
+                outputType: { status: 'Maybe-Undefined', value: true },
+                pos: position_1.token2pos(token)
+            };
+        }
+        else {
+            return {
+                type: 'Function',
+                name: 'unknown',
+                arg: undefined,
+                outputType: { status: 'Maybe-Undefined', value: true },
+                pos: position_1.token2pos(token)
+            };
+        }
     }
 }
 exports.FunctionParselet = FunctionParselet;
@@ -946,7 +972,28 @@ class CheckBinary {
 }
 class CheckFunction {
     check(node) {
-        return [];
+        const errors = [];
+        if (node.name == 'isDefined') {
+            // actually argument checking is unnecessary because the editor just doesn't recognize it
+            // if it has the wrong argument type yikes
+            // need to check that the argument is either a function or a boolean
+            if (node.arg.type != "Function" && node.arg.type != "Boolean") {
+                // then we have a problem
+                errors.push(new TypeError("incompatible argument type for isDefined", node.pos));
+            }
+            // maybe if it is a function we need to make sure that function is defined so we can
+            // convert it into Definitely, or maybe that takes place in the choose node
+        }
+        else if (node.name == 'test') {
+            // make sure there is no argument
+            if (node.arg != undefined) {
+                errors.push(new TypeError("the test function does not take an argument", node.pos));
+            }
+        }
+        else {
+            // name is unknown
+            errors.push(new TypeError("unknown function", node.pos));
+        }
     }
 }
 const checkerMap = {

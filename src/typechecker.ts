@@ -79,7 +79,28 @@ class CheckBinary implements TypeChecker {
 
 class CheckFunction implements TypeChecker {
   check(node: AST.FunctionNode): TypeError[] {
-    return [];
+    const errors: TypeError[] = [];
+    if (node.name == 'isDefined') {
+      // actually argument checking is unnecessary because the editor just doesn't recognize it
+      // if it has the wrong argument type yikes
+      // need to check that the argument is either a function or a boolean
+      if (node.arg.type != "Function" && node.arg.type != "Boolean") {
+        // then we have a problem
+        errors.push(new TypeError("incompatible argument type for isDefined", node.pos));
+      }
+      // maybe if it is a function we need to make sure that function is defined so we can
+      // convert it into Definitely, or maybe that takes place in the choose node
+    }
+    else if (node.name == 'test') {
+      // make sure there is no argument
+      if (node.arg != undefined) {
+        errors.push(new TypeError("the test function does not take an argument", node.pos));
+      }
+    }
+    else {
+      // name is unknown
+      errors.push(new TypeError("unknown function", node.pos));
+    }
   }
 }
 

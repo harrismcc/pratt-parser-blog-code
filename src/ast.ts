@@ -38,13 +38,13 @@ export type FunctionNode = {
   type: 'Function';
   name: string;
   arg: ArgumentNode;
-  outputType: MaybeUnd;
+  outputType: Maybe;
   pos: Position;
 }
 
 export type ArgumentNode = FunctionNode | BooleanNode | undefined;
 
-export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode;
+export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode | ArgumentNode;
 
 // on to the proof of concept stuff
 
