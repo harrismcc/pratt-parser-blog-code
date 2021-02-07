@@ -38,7 +38,7 @@ export type FunctionNode = {
   type: 'Function';
   name: string;
   arg: ArgumentNode;
-  outputType: Maybe;
+  outputType: Possible<ValueType>;
   pos: Position;
 }
 
@@ -48,18 +48,17 @@ export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode
 
 // on to the proof of concept stuff
 
-export type MaybeDef = {
-  status: 'Definitely';
-  value: boolean;
+export type Definitely<valueType> = {
+  status: 'Definitely'; // do we need a status anymore?
+  value: valueType; // does this ensure if Definitely<boolean> than value is of type boolean?
 }
 
-export type MaybeUnd = {
-  status: 'Maybe-Undefined';
-  value: boolean;
+export type Maybe<valueType> = {
+  status: 'Maybe-Undefined'; // maybe only status here? This way we can "change" status to definitely?
+  value: valueType;
   // dependsOn: {varName: boolean}; // This is for when we add variables that could affect the type
 }
 
-export type Maybe = MaybeDef | MaybeUnd;
+export type ValueType = number | boolean | undefined
 
-
-
+export type Possible<ValueType> = Definitely<ValueType> | Maybe<ValueType>;

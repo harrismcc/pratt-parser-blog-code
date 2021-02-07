@@ -786,7 +786,7 @@ class FunctionParselet {
                 type: 'Function',
                 name: 'isDefined',
                 arg: { type: 'Function', name: 'test',
-                    arg: undefined, outputType: { status: 'Maybe-Undefined', value: true }, pos: position_1.token2pos(token) },
+                    arg: undefined, outputType: { status: 'Maybe-Undefined', value: undefined }, pos: position_1.token2pos(token) },
                 outputType: { status: 'Definitely', value: true },
                 pos: position_1.token2pos(token)
             };
@@ -807,7 +807,7 @@ class FunctionParselet {
                 name: 'isDefined',
                 arg: { type: 'Boolean', value: false,
                     pos: position_1.token2pos(token) },
-                outputType: { status: 'Maybe-Undefined', value: true },
+                outputType: { status: 'Maybe-Undefined', value: false },
                 pos: position_1.token2pos(token)
             };
         }
@@ -816,7 +816,7 @@ class FunctionParselet {
                 type: 'Function',
                 name: 'unknown',
                 arg: undefined,
-                outputType: { status: 'Maybe-Undefined', value: true },
+                outputType: { status: 'Maybe-Undefined', value: undefined },
                 pos: position_1.token2pos(token)
             };
         }
