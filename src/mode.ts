@@ -52,7 +52,10 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
         case 'COMMENT':
           return 'comment';
 
-        case 'FUNCTION':
+        case 'TEST':
+        case 'DEFTEST':
+        case 'DEFTRUE':
+        case 'DEFFALSE':
           return 'function';
 
         case 'ERROR':

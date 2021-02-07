@@ -545,7 +545,10 @@ function MakeMode(_config, _modeOptions) {
                     return 'operator';
                 case 'COMMENT':
                     return 'comment';
-                case 'FUNCTION':
+                case 'TEST':
+                case 'DEFTEST':
+                case 'DEFTRUE':
+                case 'DEFFALSE':
                     return 'function';
                 case 'ERROR':
                     return 'error';
