@@ -114,18 +114,6 @@ function getDefaultToken(
   if (stream.match(/inverse\(\)/)) {
     return emitToken('INVERSE');
   }
-  
-  if (stream.match(/isDefined\(test\(\)\)/)) {
-    return emitToken('DEFTEST');
-  }
-
-  if (stream.match(/isDefined\(True\)/)) {
-    return emitToken('DEFTRUE');
-  }
-
-  if (stream.match(/isDefined\(False\)/)) {
-    return emitToken('DEFFALSE');
-  }
 
   stream.next();
   return emitToken('ERROR');
@@ -141,10 +129,7 @@ export type BinaryOperationTokenType =
   //       it will represent an "or" operation
 
 export type FunctionTokenType = 
-  | 'INVERSE'
-  | 'DEFTEST'
-  | 'DEFTRUE'
-  | 'DEFFALSE'
+  | 'INVERSE';
 
 export type TokenType =
   | BinaryOperationTokenType

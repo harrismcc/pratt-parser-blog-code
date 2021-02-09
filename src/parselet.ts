@@ -2,7 +2,7 @@ import { TokenStream } from './tokenstream';
 import { Token, TokenType, BinaryOperationTokenType} from './lexer';
 import * as AST from './ast';
 import { AbstractParser } from './parser';
-import {token2pos, join} from './position'
+import {ParseError, token2pos, join} from './position'
 
 export interface InitialParselet {
   parse(parser: AbstractParser, tokens: TokenStream, token: Token): AST.Node;
@@ -105,57 +105,11 @@ export class FunctionParselet implements InitialParselet {
       }
     }
 
-    if (this.value == 'deftest') {
-      return {
-        nodeType: 'Function' as 'Function',
-        name: 'isDefined',
-        arg: { nodeType: 'Function' as 'Function',
-               name: 'test',
-               arg: undefined,
-               outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                             value: 'boolean' as 'boolean' },
-               pos: token2pos(token) },
-        outputType: { status: 'Definitely' as 'Definitely',
-                      value: 'boolean' as 'boolean' },
-        pos: token2pos(token)
-      }
-    }
-
-    if (this.value == 'deftrue') {
-      return {
-        nodeType: 'Function' as 'Function',
-        name: 'isDefined',
-        arg: { nodeType: 'Boolean' as 'Boolean',
-               value: true,
-               pos: token2pos(token) },
-        outputType: { status: 'Definitely' as 'Definitely',
-                      value: 'boolean' as 'boolean' },
-        pos: token2pos(token)
-      }
-    }
-
-    if (this.value == 'deffalse') {
-      return {
-        nodeType: 'Function' as 'Function',
-        name: 'isDefined',
-        arg: { nodeType: 'Boolean' as 'Boolean',
-               value: false,
-               pos: token2pos(token) },
-        outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                      value: 'boolean' as 'boolean'},
-        pos: token2pos(token)
-      }
-    }
-
     else {
-      return {
-        nodeType: 'Function' as 'Function',
-        name: 'unknown',
-        arg: undefined,
-        outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                      value: 'boolean' as 'boolean' },
-        pos: token2pos(token)
-      }
+      throw new ParseError(
+        `Unknown function`,
+        token2pos(token),
+      );
     }
     
   }

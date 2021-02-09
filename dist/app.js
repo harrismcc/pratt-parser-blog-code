@@ -132,15 +132,6 @@ function getDefaultToken(stream, state) {
     if (stream.match(/inverse\(\)/)) {
         return emitToken('INVERSE');
     }
-    if (stream.match(/isDefined\(test\(\)\)/)) {
-        return emitToken('DEFTEST');
-    }
-    if (stream.match(/isDefined\(True\)/)) {
-        return emitToken('DEFTRUE');
-    }
-    if (stream.match(/isDefined\(False\)/)) {
-        return emitToken('DEFFALSE');
-    }
     stream.next();
     return emitToken('ERROR');
 }
@@ -675,9 +666,6 @@ class Parser extends AbstractParser {
             FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
             INVERSE: new Parselet.FunctionParselet('inverse'),
-            DEFTEST: new Parselet.FunctionParselet('deftest'),
-            DEFTRUE: new Parselet.FunctionParselet('deftrue'),
-            DEFFALSE: new Parselet.FunctionParselet('deffalse')
         };
     }
     consequentMap() {
@@ -782,49 +770,8 @@ class FunctionParselet {
                 pos: position_1.token2pos(token)
             };
         }
-        if (this.value == 'deftest') {
-            return {
-                nodeType: 'Function',
-                name: 'isDefined',
-                arg: { nodeType: 'Function', name: 'test',
-                    arg: undefined, outputType: { status: 'Maybe-Undefined',
-                        value: 'boolean' }, pos: position_1.token2pos(token) },
-                outputType: { status: 'Definitely',
-                    value: 'boolean' },
-                pos: position_1.token2pos(token)
-            };
-        }
-        if (this.value == 'deftrue') {
-            return {
-                nodeType: 'Function',
-                name: 'isDefined',
-                arg: { nodeType: 'Boolean', value: true,
-                    pos: position_1.token2pos(token) },
-                outputType: { status: 'Definitely',
-                    value: 'boolean' },
-                pos: position_1.token2pos(token)
-            };
-        }
-        if (this.value == 'deffalse') {
-            return {
-                nodeType: 'Function',
-                name: 'isDefined',
-                arg: { nodeType: 'Boolean', value: false,
-                    pos: position_1.token2pos(token) },
-                outputType: { status: 'Maybe-Undefined',
-                    value: 'boolean' },
-                pos: position_1.token2pos(token)
-            };
-        }
         else {
-            return {
-                nodeType: 'Function',
-                name: 'unknown',
-                arg: undefined,
-                outputType: { status: 'Maybe-Undefined',
-                    value: 'boolean' },
-                pos: position_1.token2pos(token)
-            };
+            throw new position_1.ParseError(`Unknown function`, position_1.token2pos(token));
         }
     }
 }
