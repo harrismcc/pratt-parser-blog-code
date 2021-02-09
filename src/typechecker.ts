@@ -102,6 +102,7 @@ class CheckFunction implements TypeChecker {
   }
 }
 
+// Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins : {[name: string]: AST.NodeType} = {
   "isDefined" : 'Boolean'
 }
