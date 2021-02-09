@@ -14,19 +14,19 @@ export type NodeType =
   | 'CalculatorReference';
 
 export type NumberNode = {
-  type: 'Number';
+  nodeType: 'Number';
   value: number;
   pos: Position;
 };
 
 export type BooleanNode = {
-  type: 'Boolean';
+  nodeType: 'Boolean';
   value: boolean;
   pos: Position;
 };
 
 export type BinaryOperationNode = {
-  type: 'BinaryOperation';
+  nodeType: 'BinaryOperation';
   operator: BinaryOperationTokenType;
   left: Node;
   right: Node;
@@ -35,7 +35,7 @@ export type BinaryOperationNode = {
 
 // Built to support isDefined(test()), isDefined(boolean), and test()
 export type FunctionNode = {
-  type: 'Function';
+  nodeType: 'Function';
   name: string;
   arg: ArgumentNode;
   outputType: Possible<ValueType>;

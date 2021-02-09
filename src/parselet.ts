@@ -11,7 +11,7 @@ export interface InitialParselet {
 export class NumberParselet implements InitialParselet {
   parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
     return {
-      type: 'Number' as 'Number',
+      nodeType: 'Number' as 'Number',
       value: parseFloat(token.text),
       pos: token2pos(token)
     }
@@ -22,7 +22,7 @@ export class BooleanParselet implements InitialParselet {
   constructor(private value: boolean) {}
   parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
     return {
-      type: 'Boolean' as 'Boolean',
+      nodeType: 'Boolean' as 'Boolean',
       value: this.value,
       pos: token2pos(token)
     }
@@ -73,7 +73,7 @@ export class BinaryOperatorParselet extends ConsequentParselet {
     );
 
     return {
-      type: 'BinaryOperation' as 'BinaryOperation',
+      nodeType: 'BinaryOperation' as 'BinaryOperation',
       operator: this.tokenType,
       left,
       right,
@@ -96,7 +96,7 @@ export class FunctionParselet implements InitialParselet {
     
     if (this.value == 'test') {
       return {
-        type: 'Function' as 'Function',
+        nodeType: 'Function' as 'Function',
         name: 'test',
         arg: undefined,
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
@@ -107,9 +107,9 @@ export class FunctionParselet implements InitialParselet {
 
     if (this.value == 'deftest') {
       return {
-        type: 'Function' as 'Function',
+        nodeType: 'Function' as 'Function',
         name: 'isDefined',
-        arg: { type: 'Function' as 'Function',
+        arg: { nodeType: 'Function' as 'Function',
                name: 'test',
                arg: undefined,
                outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
@@ -123,9 +123,9 @@ export class FunctionParselet implements InitialParselet {
 
     if (this.value == 'deftrue') {
       return {
-        type: 'Function' as 'Function',
+        nodeType: 'Function' as 'Function',
         name: 'isDefined',
-        arg: { type: 'Boolean' as 'Boolean',
+        arg: { nodeType: 'Boolean' as 'Boolean',
                value: true,
                pos: token2pos(token) },
         outputType: { status: 'Definitely' as 'Definitely',
@@ -136,9 +136,9 @@ export class FunctionParselet implements InitialParselet {
 
     if (this.value == 'deffalse') {
       return {
-        type: 'Function' as 'Function',
+        nodeType: 'Function' as 'Function',
         name: 'isDefined',
-        arg: { type: 'Boolean' as 'Boolean',
+        arg: { nodeType: 'Boolean' as 'Boolean',
                value: false,
                pos: token2pos(token) },
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
@@ -149,7 +149,7 @@ export class FunctionParselet implements InitialParselet {
 
     else {
       return {
-        type: 'Function' as 'Function',
+        nodeType: 'Function' as 'Function',
         name: 'unknown',
         arg: undefined,
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
