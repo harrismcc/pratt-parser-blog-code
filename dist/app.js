@@ -777,7 +777,8 @@ class FunctionParselet {
                 nodeType: 'Function',
                 name: 'test',
                 arg: undefined,
-                outputType: { status: 'Maybe-Undefined', value: true },
+                outputType: { status: 'Maybe-Undefined',
+                    value: 'boolean' },
                 pos: position_1.token2pos(token)
             };
         }
@@ -786,8 +787,10 @@ class FunctionParselet {
                 nodeType: 'Function',
                 name: 'isDefined',
                 arg: { nodeType: 'Function', name: 'test',
-                    arg: undefined, outputType: { status: 'Maybe-Undefined', value: undefined }, pos: position_1.token2pos(token) },
-                outputType: { status: 'Definitely', value: true },
+                    arg: undefined, outputType: { status: 'Maybe-Undefined',
+                        value: 'boolean' }, pos: position_1.token2pos(token) },
+                outputType: { status: 'Definitely',
+                    value: 'boolean' },
                 pos: position_1.token2pos(token)
             };
         }
@@ -797,7 +800,8 @@ class FunctionParselet {
                 name: 'isDefined',
                 arg: { nodeType: 'Boolean', value: true,
                     pos: position_1.token2pos(token) },
-                outputType: { status: 'Definitely', value: true },
+                outputType: { status: 'Definitely',
+                    value: 'boolean' },
                 pos: position_1.token2pos(token)
             };
         }
@@ -807,7 +811,8 @@ class FunctionParselet {
                 name: 'isDefined',
                 arg: { nodeType: 'Boolean', value: false,
                     pos: position_1.token2pos(token) },
-                outputType: { status: 'Maybe-Undefined', value: false },
+                outputType: { status: 'Maybe-Undefined',
+                    value: 'boolean' },
                 pos: position_1.token2pos(token)
             };
         }
@@ -816,7 +821,8 @@ class FunctionParselet {
                 nodeType: 'Function',
                 name: 'unknown',
                 arg: undefined,
-                outputType: { status: 'Maybe-Undefined', value: undefined },
+                outputType: { status: 'Maybe-Undefined',
+                    value: 'boolean' },
                 pos: position_1.token2pos(token)
             };
         }

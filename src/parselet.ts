@@ -100,7 +100,7 @@ export class FunctionParselet implements InitialParselet {
         name: 'test',
         arg: undefined,
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                      value: true },
+                      value: 'boolean' as 'boolean' },
         pos: token2pos(token)
       }
     }
@@ -113,10 +113,10 @@ export class FunctionParselet implements InitialParselet {
                name: 'test',
                arg: undefined,
                outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                             value: undefined },
+                             value: 'boolean' as 'boolean' },
                pos: token2pos(token) },
         outputType: { status: 'Definitely' as 'Definitely',
-                      value: true },
+                      value: 'boolean' as 'boolean' },
         pos: token2pos(token)
       }
     }
@@ -129,7 +129,7 @@ export class FunctionParselet implements InitialParselet {
                value: true,
                pos: token2pos(token) },
         outputType: { status: 'Definitely' as 'Definitely',
-                      value: true },
+                      value: 'boolean' as 'boolean' },
         pos: token2pos(token)
       }
     }
@@ -142,7 +142,7 @@ export class FunctionParselet implements InitialParselet {
                value: false,
                pos: token2pos(token) },
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                      value: false },
+                      value: 'boolean' as 'boolean'},
         pos: token2pos(token)
       }
     }
@@ -153,7 +153,7 @@ export class FunctionParselet implements InitialParselet {
         name: 'unknown',
         arg: undefined,
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                      value: undefined },
+                      value: 'boolean' as 'boolean' },
         pos: token2pos(token)
       }
     }
