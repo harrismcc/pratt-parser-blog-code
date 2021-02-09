@@ -129,8 +129,8 @@ function getDefaultToken(stream, state) {
         return emitToken('COMMENT');
     }
     // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-    if (stream.match(/test\(\)/)) {
-        return emitToken('TEST');
+    if (stream.match(/inverse\(\)/)) {
+        return emitToken('INVERSE');
     }
     if (stream.match(/isDefined\(test\(\)\)/)) {
         return emitToken('DEFTEST');
@@ -545,7 +545,7 @@ function MakeMode(_config, _modeOptions) {
                     return 'operator';
                 case 'COMMENT':
                     return 'comment';
-                case 'TEST':
+                case 'INVERSE':
                 case 'DEFTEST':
                 case 'DEFTRUE':
                 case 'DEFFALSE':
@@ -674,7 +674,7 @@ class Parser extends AbstractParser {
             TRUE: new Parselet.BooleanParselet(true),
             FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
-            TEST: new Parselet.FunctionParselet('test'),
+            INVERSE: new Parselet.FunctionParselet('inverse'),
             DEFTEST: new Parselet.FunctionParselet('deftest'),
             DEFTRUE: new Parselet.FunctionParselet('deftrue'),
             DEFFALSE: new Parselet.FunctionParselet('deffalse')
@@ -772,10 +772,10 @@ class FunctionParselet {
         this.value = value;
     }
     parse(_parser, _tokens, token) {
-        if (this.value == 'test') {
+        if (this.value == 'inverse') {
             return {
                 nodeType: 'Function',
-                name: 'test',
+                name: 'inverse',
                 arg: undefined,
                 outputType: { status: 'Maybe-Undefined',
                     value: 'boolean' },

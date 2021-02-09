@@ -111,8 +111,8 @@ function getDefaultToken(
   }
 
   // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-  if (stream.match(/test\(\)/)) {
-    return emitToken('TEST');
+  if (stream.match(/inverse\(\)/)) {
+    return emitToken('INVERSE');
   }
   
   if (stream.match(/isDefined\(test\(\)\)/)) {
@@ -141,7 +141,7 @@ export type BinaryOperationTokenType =
   //       it will represent an "or" operation
 
 export type FunctionTokenType = 
-  | 'TEST'
+  | 'INVERSE'
   | 'DEFTEST'
   | 'DEFTRUE'
   | 'DEFFALSE'

@@ -116,7 +116,7 @@ export class Parser extends AbstractParser {
       TRUE: new Parselet.BooleanParselet(true),
       FALSE: new Parselet.BooleanParselet(false),
       '(': new Parselet.ParenParselet(),
-      TEST: new Parselet.FunctionParselet('test'),
+      INVERSE: new Parselet.FunctionParselet('inverse'),
       DEFTEST: new Parselet.FunctionParselet('deftest'),
       DEFTRUE: new Parselet.FunctionParselet('deftrue'),
       DEFFALSE: new Parselet.FunctionParselet('deffalse')

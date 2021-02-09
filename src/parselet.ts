@@ -94,10 +94,10 @@ export class FunctionParselet implements InitialParselet {
   constructor(private value: string) {}
   parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
     
-    if (this.value == 'test') {
+    if (this.value == 'inverse') {
       return {
         nodeType: 'Function' as 'Function',
-        name: 'test',
+        name: 'inverse',
         arg: undefined,
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
                       value: 'boolean' as 'boolean' },
