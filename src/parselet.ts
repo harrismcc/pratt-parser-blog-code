@@ -92,15 +92,17 @@ name: string;
 */
 export class FunctionParselet implements InitialParselet {
   constructor(private value: string) {}
-  parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
-    
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token) {
+    const input = parser.parse(tokens, 0);
+    tokens.expectToken(')');
+
     if (this.value == 'inverse') {
       return {
         nodeType: 'Function' as 'Function',
         name: 'inverse',
-        arg: undefined,
+        arg: input,
         outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                      value: 'boolean' as 'boolean' },
+                      value: 'number' as 'number' },
         pos: token2pos(token)
       }
     }

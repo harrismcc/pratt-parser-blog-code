@@ -129,7 +129,7 @@ function getDefaultToken(stream, state) {
         return emitToken('COMMENT');
     }
     // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-    if (stream.match(/inverse\(\)/)) {
+    if (stream.match(/inverse\(/)) {
         return emitToken('INVERSE');
     }
     stream.next();
@@ -759,14 +759,16 @@ class FunctionParselet {
     constructor(value) {
         this.value = value;
     }
-    parse(_parser, _tokens, token) {
+    parse(parser, tokens, token) {
+        const input = parser.parse(tokens, 0);
+        tokens.expectToken(')');
         if (this.value == 'inverse') {
             return {
                 nodeType: 'Function',
                 name: 'inverse',
-                arg: undefined,
+                arg: input,
                 outputType: { status: 'Maybe-Undefined',
-                    value: 'boolean' },
+                    value: 'number' },
                 pos: position_1.token2pos(token)
             };
         }

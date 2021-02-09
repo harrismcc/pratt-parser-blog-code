@@ -111,7 +111,7 @@ function getDefaultToken(
   }
 
   // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-  if (stream.match(/inverse\(\)/)) {
+  if (stream.match(/inverse\(/)) {
     return emitToken('INVERSE');
   }
 
