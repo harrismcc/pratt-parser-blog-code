@@ -82,37 +82,22 @@ export class BinaryOperatorParselet extends ConsequentParselet {
   }
 }
 
-// ************** THIS IS WHERE THE FUNCTION PARSELET LIVES ******************
-/*
-type
-name: string;
-  arg: ArgumentNode;
-  outputType: MaybeUnd;
-  pos: Position;
-*/
+// Parse function calls
+// Limitation: Functions are allowed to take exactly one argument
 export class FunctionParselet implements InitialParselet {
-  constructor(private value: string) {}
   parse(parser: AbstractParser, tokens: TokenStream, token: Token) {
-    const input = parser.parse(tokens, 0);
+
+    tokens.expectToken('(');
+    const exp = parser.parse(tokens, 0);  // allow for one argument
     tokens.expectToken(')');
 
-    if (this.value == 'inverse') {
-      return {
-        nodeType: 'Function' as 'Function',
-        name: 'inverse',
-        arg: input,
-        outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                      value: 'number' as 'number' },
-        pos: token2pos(token)
-      }
+    return {
+      nodeType: 'Function' as 'Function',
+      name: token.text,
+      arg: exp,
+      outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
+                    value: 'number' as 'number' },
+      pos: token2pos(token)
     }
-
-    else {
-      throw new ParseError(
-        `Unknown function`,
-        token2pos(token),
-      );
-    }
-    
   }
 }
