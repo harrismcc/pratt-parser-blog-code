@@ -128,9 +128,12 @@ function getDefaultToken(stream, state) {
         }
         return emitToken('COMMENT');
     }
-    // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-    if (stream.match(/inverse\(/)) {
-        return emitToken('INVERSE');
+    // here we can hardcode when to be a choose node not an identifier to get around parsing
+    // Identifiers
+    // For now, the form of a valid identifier is: an alphabetic character,
+    // followed by one or more alphanumeric characters.
+    if (stream.match(/([a-z|A-Z])+\w+/)) {
+        return emitToken('IDENTIFIER');
     }
     stream.next();
     return emitToken('ERROR');
@@ -536,11 +539,8 @@ function MakeMode(_config, _modeOptions) {
                     return 'operator';
                 case 'COMMENT':
                     return 'comment';
-                case 'INVERSE':
-                case 'DEFTEST':
-                case 'DEFTRUE':
-                case 'DEFFALSE':
-                    return 'function';
+                case 'IDENTIFIER':
+                    return 'variable';
                 case 'ERROR':
                     return 'error';
                 default:
@@ -665,7 +665,7 @@ class Parser extends AbstractParser {
             TRUE: new Parselet.BooleanParselet(true),
             FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
-            INVERSE: new Parselet.FunctionParselet('inverse'),
+            IDENTIFIER: new Parselet.FunctionParselet(),
         };
     }
     consequentMap() {
@@ -696,6 +696,8 @@ class NumberParselet {
         return {
             nodeType: 'Number',
             value: parseFloat(token.text),
+            outputType: { status: 'Definitely',
+                value: 'number' },
             pos: position_1.token2pos(token)
         };
     }
@@ -709,6 +711,8 @@ class BooleanParselet {
         return {
             nodeType: 'Boolean',
             value: this.value,
+            outputType: { status: 'Definitely',
+                value: 'boolean' },
             pos: position_1.token2pos(token)
         };
     }
@@ -742,39 +746,27 @@ class BinaryOperatorParselet extends ConsequentParselet {
             operator: this.tokenType,
             left,
             right,
+            outputType: undefined,
             pos: position_1.join(left.pos, position_1.token2pos(tokens.last()))
         };
     }
 }
 exports.BinaryOperatorParselet = BinaryOperatorParselet;
-// ************** THIS IS WHERE THE FUNCTION PARSELET LIVES ******************
-/*
-type
-name: string;
-  arg: ArgumentNode;
-  outputType: MaybeUnd;
-  pos: Position;
-*/
+// Parse function calls
+// Limitation: Functions are allowed to take exactly one argument
 class FunctionParselet {
-    constructor(value) {
-        this.value = value;
-    }
     parse(parser, tokens, token) {
-        const input = parser.parse(tokens, 0);
+        tokens.expectToken('(');
+        const exp = parser.parse(tokens, 0); // allow for one argument
         tokens.expectToken(')');
-        if (this.value == 'inverse') {
-            return {
-                nodeType: 'Function',
-                name: 'inverse',
-                arg: input,
-                outputType: { status: 'Maybe-Undefined',
-                    value: 'number' },
-                pos: position_1.token2pos(token)
-            };
-        }
-        else {
-            throw new position_1.ParseError(`Unknown function`, position_1.token2pos(token));
-        }
+        return {
+            nodeType: 'Function',
+            name: token.text,
+            arg: exp,
+            outputType: { status: 'Maybe-Undefined',
+                value: 'number' },
+            pos: position_1.token2pos(token)
+        };
     }
 }
 exports.FunctionParselet = FunctionParselet;
@@ -886,74 +878,87 @@ class CheckBoolean {
 class CheckBinary {
     check(node) {
         const errors = typecheckNode(node.left).concat(typecheckNode(node.right));
+        if (node.left.outputType.value != node.right.outputType.value) {
+            errors.push(new TypeError("incompatible types for binary operator", node.pos));
+        }
+        else if (node.right.outputType.value == 'boolean' && node.operator != "^") {
+            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+        }
+        else if (node.right.outputType.value == 'number' && node.operator == "^") {
+            errors.push(new TypeError("incompatible operation for number operands", node.pos));
+        }
+        if (errors.length == 0) {
+            node.outputType = { status: 'Definitely', value: node.left.outputType.value };
+        }
+        /*
         if (node.left.nodeType != node.right.nodeType) {
-            if (node.left.nodeType == "BinaryOperation") {
-                errors.concat(this.check(node.left));
-                if (node.left.left.nodeType != node.right.nodeType) {
-                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-                }
-                // do the operator and the other node's type match
-                else if (node.right.nodeType == "Boolean" && node.operator != "^") {
-                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-                }
-                else if (node.right.nodeType == "Number" && node.operator == "^") {
-                    errors.push(new TypeError("incompatible operation for number operands", node.pos));
-                }
-            }
-            else if (node.right.nodeType == "BinaryOperation") {
-                errors.concat(this.check(node.right));
-                if (node.right.left.nodeType != node.left.nodeType) {
-                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-                }
-                // do the operator and the other node's type match
-                else if (node.left.nodeType == "Boolean" && node.operator != "^") {
-                    errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-                }
-                else if (node.left.nodeType == "Number" && node.operator == "^") {
-                    errors.push(new TypeError("incompatible operation for number operands", node.pos));
-                }
-            }
-            else {
-                errors.push(new TypeError("incompatible types for binary operator", node.pos));
-            }
+          if (node.left.nodeType == "BinaryOperation") {
+              errors.concat(this.check(node.left));
+              if (node.left.left.nodeType != node.right.nodeType) {
+                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+              }
+              // do the operator and the other node's type match
+              else if (node.right.nodeType == "Boolean" && node.operator != "^") {
+                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+              }
+              else if (node.right.nodeType == "Number" && node.operator == "^") {
+                errors.push(new TypeError("incompatible operation for number operands", node.pos));
+              }
+              
+          }
+          else if (node.right.nodeType == "BinaryOperation") {
+              errors.concat(this.check(node.right));
+              if (node.right.left.nodeType != node.left.nodeType) {
+                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+              }
+              // do the operator and the other node's type match
+              else if (node.left.nodeType == "Boolean" && node.operator != "^") {
+                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+              }
+              else if (node.left.nodeType == "Number" && node.operator == "^") {
+                errors.push(new TypeError("incompatible operation for number operands", node.pos));
+              }
+          }
+          else {
+            errors.push(new TypeError("incompatible types for binary operator", node.pos));
+          }
         }
         else {
-            if (node.left.nodeType == "Boolean" && node.operator != "^") {
-                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-            }
-            else if (node.left.nodeType == "Number" && node.operator == "^") {
-                errors.push(new TypeError("incompatible operation for number operands", node.pos));
-            }
+          if (node.left.nodeType == "Boolean" && node.operator != "^") {
+            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+          }
+          else if (node.left.nodeType == "Number" && node.operator == "^") {
+            errors.push(new TypeError("incompatible operation for number operands", node.pos));
+          }
         }
+        */
         return errors;
     }
 }
 class CheckFunction {
     check(node) {
         const errors = [];
-        if (node.name == 'isDefined') {
-            // actually argument checking is unnecessary because the editor just doesn't recognize it
-            // if it has the wrong argument type yikes
-            // need to check that the argument is either a function or a boolean
-            if (node.arg.nodeType != "Function" && node.arg.nodeType != "Boolean") {
-                // then we have a problem
-                errors.push(new TypeError("incompatible argument type for isDefined", node.pos));
-            }
-            // maybe if it is a function we need to make sure that function is defined so we can
-            // convert it into Definitely, or maybe that takes place in the choose node
-        }
-        else if (node.name == 'test') {
-            // make sure there is no argument
-            if (node.arg != undefined) {
-                errors.push(new TypeError("the test function does not take an argument", node.pos));
+        const functionName = node.name;
+        const argType = builtins[functionName];
+        // we found a builtin function
+        if (argType) {
+            // typecheck the argument
+            if (node.arg.nodeType != argType) {
+                errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
             }
         }
+        // this is not a known, builtin function
         else {
-            // name is unknown
             errors.push(new TypeError("unknown function", node.pos));
         }
+        return errors;
     }
 }
+// Dictionary of builtin functions that maps a function name to the type of its argument
+const builtins = {
+    "isDefined": 'Boolean',
+    "inverse": 'Number'
+};
 const checkerMap = {
     'Number': new CheckNumber(),
     'Boolean': new CheckBoolean(),

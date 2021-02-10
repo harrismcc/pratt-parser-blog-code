@@ -110,6 +110,9 @@ function getDefaultToken(
     return emitToken('COMMENT');
   }
 
+  // here we can hardcode when to be a choose node not an identifier to get around parsing
+  
+
   // Identifiers
   // For now, the form of a valid identifier is: an alphabetic character,
   // followed by one or more alphanumeric characters.

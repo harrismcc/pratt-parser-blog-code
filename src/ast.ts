@@ -16,12 +16,14 @@ export type NodeType =
 export type NumberNode = {
   nodeType: 'Number';
   value: number;
+  outputType: Definitely<ValueType>;
   pos: Position;
 };
 
 export type BooleanNode = {
   nodeType: 'Boolean';
   value: boolean;
+  outputType: Definitely<ValueType>;
   pos: Position;
 };
 
@@ -30,6 +32,7 @@ export type BinaryOperationNode = {
   operator: BinaryOperationTokenType;
   left: Node;
   right: Node;
+  outputType: Definitely<ValueType> | undefined;
   pos: Position;
 };
 
@@ -41,8 +44,15 @@ export type FunctionNode = {
   outputType: Possible<ValueType>;
   pos: Position;
 }
-
-export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode | undefined;
+/*
+export type ChooseNode = {
+  nodeType: 'Choose';
+  case: { predicate: Node, consequent: Node };
+  otherwise: Node;
+  pos: Position
+}
+*/
+export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode| undefined;
 
 // on to the proof of concept stuff
 

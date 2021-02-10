@@ -33,6 +33,22 @@ class CheckBoolean implements TypeChecker {
 class CheckBinary implements TypeChecker {
   check(node: AST.BinaryOperationNode): TypeError[] {
     const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
+    
+    if (node.left.outputType.value != node.right.outputType.value) {
+      errors.push(new TypeError("incompatible types for binary operator", node.pos));
+    }
+    else if (node.right.outputType.value == 'boolean' && node.operator != "^") {
+      errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
+    }
+    else if (node.right.outputType.value == 'number' && node.operator == "^") {
+      errors.push(new TypeError("incompatible operation for number operands", node.pos));
+    }
+
+    if (errors.length == 0) {
+      node.outputType = {status: 'Definitely', value: node.left.outputType.value};
+    }
+
+    /*
     if (node.left.nodeType != node.right.nodeType) {
       if (node.left.nodeType == "BinaryOperation") {
           errors.concat(this.check(node.left));
@@ -73,6 +89,8 @@ class CheckBinary implements TypeChecker {
         errors.push(new TypeError("incompatible operation for number operands", node.pos));
       }
     }
+    */
+
     return errors;
   }
 }
@@ -104,7 +122,8 @@ class CheckFunction implements TypeChecker {
 
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins : {[name: string]: AST.NodeType} = {
-  "isDefined" : 'Boolean'
+  "isDefined" : 'Boolean',
+  "inverse": 'Number'
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {

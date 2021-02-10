@@ -13,6 +13,8 @@ export class NumberParselet implements InitialParselet {
     return {
       nodeType: 'Number' as 'Number',
       value: parseFloat(token.text),
+      outputType: { status: 'Definitely' as 'Definitely',
+                    value: 'number' as 'number' },
       pos: token2pos(token)
     }
   }
@@ -24,6 +26,8 @@ export class BooleanParselet implements InitialParselet {
     return {
       nodeType: 'Boolean' as 'Boolean',
       value: this.value,
+      outputType: { status: 'Definitely' as 'Definitely',
+                    value: 'boolean' as 'boolean' },
       pos: token2pos(token)
     }
   }
@@ -77,6 +81,7 @@ export class BinaryOperatorParselet extends ConsequentParselet {
       operator: this.tokenType,
       left,
       right,
+      outputType: undefined,
       pos: join(left.pos, token2pos(tokens.last()))
     }
   }
