@@ -110,9 +110,11 @@ function getDefaultToken(
     return emitToken('COMMENT');
   }
 
-  // ******* THIS IS WHERE THE TEST FUNCTION IS *************
-  if (stream.match(/inverse\(/)) {
-    return emitToken('INVERSE');
+  // Identifiers
+  // For now, the form of a valid identifier is: an alphabetic character,
+  // followed by one or more alphanumeric characters.
+  if (stream.match(/([a-z|A-Z])+\w+/)) {
+    return emitToken('IDENTIFIER');
   }
 
   stream.next();
@@ -128,9 +130,6 @@ export type BinaryOperationTokenType =
   // NOTE: we are considering the "^" operation to be a strictly boolean operation
   //       it will represent an "or" operation
 
-export type FunctionTokenType = 
-  | 'INVERSE';
-
 export type TokenType =
   | BinaryOperationTokenType
   | 'NUMBER'
@@ -140,7 +139,7 @@ export type TokenType =
   | ')'
   | 'COMMENT'
   | 'ERROR'
-  | FunctionTokenType;
+  | 'IDENTIFIER'
 
 export interface Token<T extends TokenType = TokenType> {
   type: T;

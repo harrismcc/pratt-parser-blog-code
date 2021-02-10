@@ -80,28 +80,31 @@ class CheckBinary implements TypeChecker {
 class CheckFunction implements TypeChecker {
   check(node: AST.FunctionNode): TypeError[] {
     const errors: TypeError[] = [];
-    if (node.name == 'isDefined') {
-      // actually argument checking is unnecessary because the editor just doesn't recognize it
-      // if it has the wrong argument type yikes
-      // need to check that the argument is either a function or a boolean
-      if (node.arg.nodeType != "Function" && node.arg.nodeType != "Boolean") {
-        // then we have a problem
-        errors.push(new TypeError("incompatible argument type for isDefined", node.pos));
-      }
-      // maybe if it is a function we need to make sure that function is defined so we can
-      // convert it into Definitely, or maybe that takes place in the choose node
-    }
-    else if (node.name == 'test') {
-      // make sure there is no argument
-      if (node.arg != undefined) {
-        errors.push(new TypeError("the test function does not take an argument", node.pos));
+
+    const functionName = node.name
+    const argType = builtins[functionName];
+
+    // we found a builtin function
+    if (argType) {
+
+      // typecheck the argument
+      if (node.arg.nodeType != argType) {
+        errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
       }
     }
+  
+    // this is not a known, builtin function
     else {
-      // name is unknown
       errors.push(new TypeError("unknown function", node.pos));
     }
+
+    return errors;
   }
+}
+
+// Dictionary of builtin functions that maps a function name to the type of its argument
+const builtins : {[name: string]: AST.NodeType} = {
+  "isDefined" : 'Boolean'
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
