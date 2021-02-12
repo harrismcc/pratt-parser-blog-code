@@ -921,7 +921,7 @@ class CheckFunction {
         }
         // If no type errors, update the output type of this node, based on the outputType of its argument
         if (errors.length == 0) {
-            if (((_c = (_b = node.arg) === null || _b === void 0 ? void 0 : _b.outputType) === null || _c === void 0 ? void 0 : _c.status) == 'Maybe-Undefined') {
+            if (((_c = (_b = node.arg) === null || _b === void 0 ? void 0 : _b.outputType) === null || _c === void 0 ? void 0 : _c.status) == 'Maybe-Undefined' || functionName == 'input') {
                 node.outputType = { status: 'Maybe-Undefined', valueType: (_e = (_d = node.arg) === null || _d === void 0 ? void 0 : _d.outputType) === null || _e === void 0 ? void 0 : _e.valueType };
             }
             else {
@@ -934,7 +934,8 @@ class CheckFunction {
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins = {
     "isDefined": 'Function',
-    "inverse": 'Number'
+    "inverse": 'Number',
+    "input": 'Number'
 };
 const checkerMap = {
     'Number': new CheckNumber(),

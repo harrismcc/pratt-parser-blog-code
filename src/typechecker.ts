@@ -82,7 +82,7 @@ class CheckFunction implements TypeChecker {
 
     // If no type errors, update the output type of this node, based on the outputType of its argument
     if (errors.length == 0) {
-      if (node.arg?.outputType?.status == 'Maybe-Undefined') {
+      if (node.arg?.outputType?.status == 'Maybe-Undefined' || functionName == 'input') {
         node.outputType = {status: 'Maybe-Undefined', valueType: node.arg?.outputType?.valueType};
       } else {
         node.outputType = {status: 'Definitely', valueType: node.arg?.outputType?.valueType};
@@ -96,7 +96,8 @@ class CheckFunction implements TypeChecker {
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins : {[name: string]: AST.NodeType} = {
   "isDefined" : 'Function',
-  "inverse": 'Number'
+  "inverse": 'Number',
+  "input": 'Number'
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
