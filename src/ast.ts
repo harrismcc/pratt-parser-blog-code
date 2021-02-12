@@ -58,12 +58,12 @@ export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode
 
 export type Definitely<ValueType> = {
   status: 'Definitely'; // do we need a status anymore?
-  value: ValueType; // does this ensure if Definitely<boolean> than value is of type boolean?
+  valueType: ValueType; // does this ensure if Definitely<boolean> than value is of type boolean?
 }
 
 export type Maybe<ValueType> = {
   status: 'Maybe-Undefined'; // maybe only status here? This way we can "change" status to definitely?
-  value: ValueType;
+  valueType: ValueType;
   // dependsOn: {varName: boolean}; // This is for when we add variables that could affect the type
 }
 

@@ -697,7 +697,7 @@ class NumberParselet {
             nodeType: 'Number',
             value: parseFloat(token.text),
             outputType: { status: 'Definitely',
-                value: 'number' },
+                valueType: 'number' },
             pos: position_1.token2pos(token)
         };
     }
@@ -712,7 +712,7 @@ class BooleanParselet {
             nodeType: 'Boolean',
             value: this.value,
             outputType: { status: 'Definitely',
-                value: 'boolean' },
+                valueType: 'boolean' },
             pos: position_1.token2pos(token)
         };
     }
@@ -764,7 +764,7 @@ class FunctionParselet {
             name: token.text,
             arg: exp,
             outputType: { status: 'Maybe-Undefined',
-                value: 'number' },
+                valueType: 'number' },
             pos: position_1.token2pos(token)
         };
     }
@@ -880,23 +880,23 @@ class CheckBinary {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
         const errors = typecheckNode(node.left).concat(typecheckNode(node.right));
         // Check if same operand type (both numbers, both booleans)
-        if (((_b = (_a = node.left) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.value) != ((_d = (_c = node.right) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.value)) {
+        if (((_b = (_a = node.left) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != ((_d = (_c = node.right) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.valueType)) {
             errors.push(new TypeError("incompatible types for binary operator", node.pos));
         }
         // Check if incorrect combination of operator and operands
-        else if (((_f = (_e = node.right) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.value) == 'boolean' && node.operator != "^") {
+        else if (((_f = (_e = node.right) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.valueType) == 'boolean' && node.operator != "^") {
             errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
         }
-        else if (((_h = (_g = node.right) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.value) == 'number' && node.operator == "^") {
+        else if (((_h = (_g = node.right) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.valueType) == 'number' && node.operator == "^") {
             errors.push(new TypeError("incompatible operation for number operands", node.pos));
         }
         // If no type errors, update the output type of this node, based on the outputType of its inputs
         if (errors.length == 0) {
             if (((_k = (_j = node.right) === null || _j === void 0 ? void 0 : _j.outputType) === null || _k === void 0 ? void 0 : _k.status) == 'Maybe-Undefined' || ((_m = (_l = node.left) === null || _l === void 0 ? void 0 : _l.outputType) === null || _m === void 0 ? void 0 : _m.status) == 'Maybe-Undefined') {
-                node.outputType = { status: 'Maybe-Undefined', value: (_p = (_o = node.left) === null || _o === void 0 ? void 0 : _o.outputType) === null || _p === void 0 ? void 0 : _p.value };
+                node.outputType = { status: 'Maybe-Undefined', valueType: (_p = (_o = node.left) === null || _o === void 0 ? void 0 : _o.outputType) === null || _p === void 0 ? void 0 : _p.valueType };
             }
             else {
-                node.outputType = { status: 'Definitely', value: (_r = (_q = node.left) === null || _q === void 0 ? void 0 : _q.outputType) === null || _r === void 0 ? void 0 : _r.value };
+                node.outputType = { status: 'Definitely', valueType: (_r = (_q = node.left) === null || _q === void 0 ? void 0 : _q.outputType) === null || _r === void 0 ? void 0 : _r.valueType };
             }
         }
         return errors;
@@ -922,10 +922,10 @@ class CheckFunction {
         // If no type errors, update the output type of this node, based on the outputType of its argument
         if (errors.length == 0) {
             if (((_c = (_b = node.arg) === null || _b === void 0 ? void 0 : _b.outputType) === null || _c === void 0 ? void 0 : _c.status) == 'Maybe-Undefined') {
-                node.outputType = { status: 'Maybe-Undefined', value: (_e = (_d = node.arg) === null || _d === void 0 ? void 0 : _d.outputType) === null || _e === void 0 ? void 0 : _e.value };
+                node.outputType = { status: 'Maybe-Undefined', valueType: (_e = (_d = node.arg) === null || _d === void 0 ? void 0 : _d.outputType) === null || _e === void 0 ? void 0 : _e.valueType };
             }
             else {
-                node.outputType = { status: 'Definitely', value: (_g = (_f = node.arg) === null || _f === void 0 ? void 0 : _f.outputType) === null || _g === void 0 ? void 0 : _g.value };
+                node.outputType = { status: 'Definitely', valueType: (_g = (_f = node.arg) === null || _f === void 0 ? void 0 : _f.outputType) === null || _g === void 0 ? void 0 : _g.valueType };
             }
         }
         return errors;

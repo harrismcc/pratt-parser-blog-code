@@ -35,23 +35,23 @@ class CheckBinary implements TypeChecker {
     const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
     
     // Check if same operand type (both numbers, both booleans)
-    if (node.left?.outputType?.value != node.right?.outputType?.value) {
+    if (node.left?.outputType?.valueType != node.right?.outputType?.valueType) {
       errors.push(new TypeError("incompatible types for binary operator", node.pos));
     }
     // Check if incorrect combination of operator and operands
-    else if (node.right?.outputType?.value == 'boolean' && node.operator != "^") {
+    else if (node.right?.outputType?.valueType == 'boolean' && node.operator != "^") {
       errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
     }
-    else if (node.right?.outputType?.value == 'number' && node.operator == "^") {
+    else if (node.right?.outputType?.valueType == 'number' && node.operator == "^") {
       errors.push(new TypeError("incompatible operation for number operands", node.pos));
     }
 
     // If no type errors, update the output type of this node, based on the outputType of its inputs
     if (errors.length == 0) {
       if (node.right?.outputType?.status == 'Maybe-Undefined' || node.left?.outputType?.status == 'Maybe-Undefined') {
-        node.outputType = {status: 'Maybe-Undefined', value: node.left?.outputType?.value};
+        node.outputType = {status: 'Maybe-Undefined', valueType: node.left?.outputType?.valueType};
       } else {
-        node.outputType = {status: 'Definitely', value: node.left?.outputType?.value};
+        node.outputType = {status: 'Definitely', valueType: node.left?.outputType?.valueType};
       }
     }
 
@@ -83,9 +83,9 @@ class CheckFunction implements TypeChecker {
     // If no type errors, update the output type of this node, based on the outputType of its argument
     if (errors.length == 0) {
       if (node.arg?.outputType?.status == 'Maybe-Undefined') {
-        node.outputType = {status: 'Maybe-Undefined', value: node.arg?.outputType?.value};
+        node.outputType = {status: 'Maybe-Undefined', valueType: node.arg?.outputType?.valueType};
       } else {
-        node.outputType = {status: 'Definitely', value: node.arg?.outputType?.value};
+        node.outputType = {status: 'Definitely', valueType: node.arg?.outputType?.valueType};
       }
     }    
 

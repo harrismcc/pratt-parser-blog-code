@@ -14,7 +14,7 @@ export class NumberParselet implements InitialParselet {
       nodeType: 'Number' as 'Number',
       value: parseFloat(token.text),
       outputType: { status: 'Definitely' as 'Definitely',
-                    value: 'number' as 'number' },
+                    valueType: 'number' as 'number' },
       pos: token2pos(token)
     }
   }
@@ -27,7 +27,7 @@ export class BooleanParselet implements InitialParselet {
       nodeType: 'Boolean' as 'Boolean',
       value: this.value,
       outputType: { status: 'Definitely' as 'Definitely',
-                    value: 'boolean' as 'boolean' },
+                    valueType: 'boolean' as 'boolean' },
       pos: token2pos(token)
     }
   }
@@ -101,7 +101,7 @@ export class FunctionParselet implements InitialParselet {
       name: token.text,
       arg: exp,
       outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                    value: 'number' as 'number' },
+                    valueType: 'number' as 'number' },
       pos: token2pos(token)
     }
   }
