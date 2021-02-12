@@ -34,62 +34,26 @@ class CheckBinary implements TypeChecker {
   check(node: AST.BinaryOperationNode): TypeError[] {
     const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
     
-    if (node.left.outputType.value != node.right.outputType.value) {
+    // Check if same operand type (both numbers, both booleans)
+    if (node.left?.outputType?.value != node.right?.outputType?.value) {
       errors.push(new TypeError("incompatible types for binary operator", node.pos));
     }
-    else if (node.right.outputType.value == 'boolean' && node.operator != "^") {
+    // Check if incorrect combination of operator and operands
+    else if (node.right?.outputType?.value == 'boolean' && node.operator != "^") {
       errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
     }
-    else if (node.right.outputType.value == 'number' && node.operator == "^") {
+    else if (node.right?.outputType?.value == 'number' && node.operator == "^") {
       errors.push(new TypeError("incompatible operation for number operands", node.pos));
     }
 
+    // If no type errors, update the output type of this node, based on the outputType of its inputs
     if (errors.length == 0) {
-      node.outputType = {status: 'Definitely', value: node.left.outputType.value};
-    }
-
-    /*
-    if (node.left.nodeType != node.right.nodeType) {
-      if (node.left.nodeType == "BinaryOperation") {
-          errors.concat(this.check(node.left));
-          if (node.left.left.nodeType != node.right.nodeType) {
-            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-          }
-          // do the operator and the other node's type match
-          else if (node.right.nodeType == "Boolean" && node.operator != "^") {
-            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-          }
-          else if (node.right.nodeType == "Number" && node.operator == "^") {
-            errors.push(new TypeError("incompatible operation for number operands", node.pos));
-          }
-          
-      }
-      else if (node.right.nodeType == "BinaryOperation") {
-          errors.concat(this.check(node.right));
-          if (node.right.left.nodeType != node.left.nodeType) {
-            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-          }
-          // do the operator and the other node's type match
-          else if (node.left.nodeType == "Boolean" && node.operator != "^") {
-            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-          }
-          else if (node.left.nodeType == "Number" && node.operator == "^") {
-            errors.push(new TypeError("incompatible operation for number operands", node.pos));
-          }
-      }
-      else {
-        errors.push(new TypeError("incompatible types for binary operator", node.pos));
+      if (node.right?.outputType?.status == 'Maybe-Undefined' || node.left?.outputType?.status == 'Maybe-Undefined') {
+        node.outputType = {status: 'Maybe-Undefined', value: node.left?.outputType?.value};
+      } else {
+        node.outputType = {status: 'Definitely', value: node.left?.outputType?.value};
       }
     }
-    else {
-      if (node.left.nodeType == "Boolean" && node.operator != "^") {
-        errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-      }
-      else if (node.left.nodeType == "Number" && node.operator == "^") {
-        errors.push(new TypeError("incompatible operation for number operands", node.pos));
-      }
-    }
-    */
 
     return errors;
   }
@@ -106,7 +70,7 @@ class CheckFunction implements TypeChecker {
     if (argType) {
 
       // typecheck the argument
-      if (node.arg.nodeType != argType) {
+      if (node.arg?.nodeType != argType) {
         errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
       }
     }
@@ -116,13 +80,22 @@ class CheckFunction implements TypeChecker {
       errors.push(new TypeError("unknown function", node.pos));
     }
 
+    // If no type errors, update the output type of this node, based on the outputType of its argument
+    if (errors.length == 0) {
+      if (node.arg?.outputType?.status == 'Maybe-Undefined') {
+        node.outputType = {status: 'Maybe-Undefined', value: node.arg?.outputType?.value};
+      } else {
+        node.outputType = {status: 'Definitely', value: node.arg?.outputType?.value};
+      }
+    }    
+
     return errors;
   }
 }
 
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins : {[name: string]: AST.NodeType} = {
-  "isDefined" : 'Boolean',
+  "isDefined" : 'Function',
   "inverse": 'Number'
 }
 

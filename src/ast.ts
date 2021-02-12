@@ -32,7 +32,7 @@ export type BinaryOperationNode = {
   operator: BinaryOperationTokenType;
   left: Node;
   right: Node;
-  outputType: Definitely<ValueType> | undefined;
+  outputType: Possible<ValueType> | undefined;
   pos: Position;
 };
 

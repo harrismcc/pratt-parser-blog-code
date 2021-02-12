@@ -877,73 +877,41 @@ class CheckBoolean {
 }
 class CheckBinary {
     check(node) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
         const errors = typecheckNode(node.left).concat(typecheckNode(node.right));
-        if (node.left.outputType.value != node.right.outputType.value) {
+        // Check if same operand type (both numbers, both booleans)
+        if (((_b = (_a = node.left) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.value) != ((_d = (_c = node.right) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.value)) {
             errors.push(new TypeError("incompatible types for binary operator", node.pos));
         }
-        else if (node.right.outputType.value == 'boolean' && node.operator != "^") {
+        // Check if incorrect combination of operator and operands
+        else if (((_f = (_e = node.right) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.value) == 'boolean' && node.operator != "^") {
             errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
         }
-        else if (node.right.outputType.value == 'number' && node.operator == "^") {
+        else if (((_h = (_g = node.right) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.value) == 'number' && node.operator == "^") {
             errors.push(new TypeError("incompatible operation for number operands", node.pos));
         }
+        // If no type errors, update the output type of this node, based on the outputType of its inputs
         if (errors.length == 0) {
-            node.outputType = { status: 'Definitely', value: node.left.outputType.value };
+            if (((_k = (_j = node.right) === null || _j === void 0 ? void 0 : _j.outputType) === null || _k === void 0 ? void 0 : _k.status) == 'Maybe-Undefined' || ((_m = (_l = node.left) === null || _l === void 0 ? void 0 : _l.outputType) === null || _m === void 0 ? void 0 : _m.status) == 'Maybe-Undefined') {
+                node.outputType = { status: 'Maybe-Undefined', value: (_p = (_o = node.left) === null || _o === void 0 ? void 0 : _o.outputType) === null || _p === void 0 ? void 0 : _p.value };
+            }
+            else {
+                node.outputType = { status: 'Definitely', value: (_r = (_q = node.left) === null || _q === void 0 ? void 0 : _q.outputType) === null || _r === void 0 ? void 0 : _r.value };
+            }
         }
-        /*
-        if (node.left.nodeType != node.right.nodeType) {
-          if (node.left.nodeType == "BinaryOperation") {
-              errors.concat(this.check(node.left));
-              if (node.left.left.nodeType != node.right.nodeType) {
-                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-              }
-              // do the operator and the other node's type match
-              else if (node.right.nodeType == "Boolean" && node.operator != "^") {
-                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-              }
-              else if (node.right.nodeType == "Number" && node.operator == "^") {
-                errors.push(new TypeError("incompatible operation for number operands", node.pos));
-              }
-              
-          }
-          else if (node.right.nodeType == "BinaryOperation") {
-              errors.concat(this.check(node.right));
-              if (node.right.left.nodeType != node.left.nodeType) {
-                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-              }
-              // do the operator and the other node's type match
-              else if (node.left.nodeType == "Boolean" && node.operator != "^") {
-                errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-              }
-              else if (node.left.nodeType == "Number" && node.operator == "^") {
-                errors.push(new TypeError("incompatible operation for number operands", node.pos));
-              }
-          }
-          else {
-            errors.push(new TypeError("incompatible types for binary operator", node.pos));
-          }
-        }
-        else {
-          if (node.left.nodeType == "Boolean" && node.operator != "^") {
-            errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
-          }
-          else if (node.left.nodeType == "Number" && node.operator == "^") {
-            errors.push(new TypeError("incompatible operation for number operands", node.pos));
-          }
-        }
-        */
         return errors;
     }
 }
 class CheckFunction {
     check(node) {
+        var _a, _b, _c, _d, _e, _f, _g;
         const errors = [];
         const functionName = node.name;
         const argType = builtins[functionName];
         // we found a builtin function
         if (argType) {
             // typecheck the argument
-            if (node.arg.nodeType != argType) {
+            if (((_a = node.arg) === null || _a === void 0 ? void 0 : _a.nodeType) != argType) {
                 errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
             }
         }
@@ -951,12 +919,21 @@ class CheckFunction {
         else {
             errors.push(new TypeError("unknown function", node.pos));
         }
+        // If no type errors, update the output type of this node, based on the outputType of its argument
+        if (errors.length == 0) {
+            if (((_c = (_b = node.arg) === null || _b === void 0 ? void 0 : _b.outputType) === null || _c === void 0 ? void 0 : _c.status) == 'Maybe-Undefined') {
+                node.outputType = { status: 'Maybe-Undefined', value: (_e = (_d = node.arg) === null || _d === void 0 ? void 0 : _d.outputType) === null || _e === void 0 ? void 0 : _e.value };
+            }
+            else {
+                node.outputType = { status: 'Definitely', value: (_g = (_f = node.arg) === null || _f === void 0 ? void 0 : _f.outputType) === null || _g === void 0 ? void 0 : _g.value };
+            }
+        }
         return errors;
     }
 }
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins = {
-    "isDefined": 'Boolean',
+    "isDefined": 'Function',
     "inverse": 'Number'
 };
 const checkerMap = {
