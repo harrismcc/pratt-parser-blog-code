@@ -67,6 +67,6 @@ export type Maybe<ValueType> = {
   // dependsOn: {varName: boolean}; // This is for when we add variables that could affect the type
 }
 
-export type ValueType = 'number' | 'boolean' | undefined;
+export type ValueType = 'number' | 'boolean' | 'any' | undefined;
 
 export type Possible<ValueType> = Definitely<ValueType> | Maybe<ValueType>;

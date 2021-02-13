@@ -101,7 +101,7 @@ export class FunctionParselet implements InitialParselet {
       name: token.text,
       arg: exp,
       outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                    valueType: 'number' as 'number' },
+                    valueType: undefined },
       pos: token2pos(token)
     }
   }

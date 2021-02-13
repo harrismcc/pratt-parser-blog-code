@@ -763,8 +763,7 @@ class FunctionParselet {
             nodeType: 'Function',
             name: token.text,
             arg: exp,
-            outputType: { status: 'Maybe-Undefined',
-                valueType: 'number' },
+            outputType: { status: 'Maybe-Undefined', valueType: undefined },
             pos: position_1.token2pos(token)
         };
     }
@@ -904,14 +903,18 @@ class CheckBinary {
 }
 class CheckFunction {
     check(node) {
-        var _a, _b, _c, _d, _e, _f, _g;
+        var _a, _b, _c, _d;
         const errors = [];
+        // First typecheck the argument
+        const argErrors = typecheckNode(node.arg);
+        errors.concat(argErrors);
         const functionName = node.name;
-        const argType = builtins[functionName];
+        const argType = builtins[functionName].inputType;
+        const returnType = builtins[functionName].resultType;
         // we found a builtin function
         if (argType) {
             // typecheck the argument
-            if (((_a = node.arg) === null || _a === void 0 ? void 0 : _a.nodeType) != argType) {
+            if (argType != 'any' && ((_b = (_a = node.arg) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != argType) {
                 errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
             }
         }
@@ -921,21 +924,22 @@ class CheckFunction {
         }
         // If no type errors, update the output type of this node, based on the outputType of its argument
         if (errors.length == 0) {
-            if (((_c = (_b = node.arg) === null || _b === void 0 ? void 0 : _b.outputType) === null || _c === void 0 ? void 0 : _c.status) == 'Maybe-Undefined' || functionName == 'input') {
-                node.outputType = { status: 'Maybe-Undefined', valueType: (_e = (_d = node.arg) === null || _d === void 0 ? void 0 : _d.outputType) === null || _e === void 0 ? void 0 : _e.valueType };
+            if (((_d = (_c = node.arg) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined' || functionName == 'input') {
+                node.outputType.status = 'Maybe-Undefined';
             }
             else {
-                node.outputType = { status: 'Definitely', valueType: (_g = (_f = node.arg) === null || _f === void 0 ? void 0 : _f.outputType) === null || _g === void 0 ? void 0 : _g.valueType };
+                node.outputType.status = 'Definitely';
             }
+            node.outputType.valueType = returnType;
         }
         return errors;
     }
 }
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins = {
-    "isDefined": 'Function',
-    "inverse": 'Number',
-    "input": 'Number'
+    "isDefined": { inputType: 'any', resultType: 'boolean' },
+    "inverse": { inputType: 'number', resultType: 'number' },
+    "input": { inputType: 'number', resultType: 'number' }
 };
 const checkerMap = {
     'Number': new CheckNumber(),

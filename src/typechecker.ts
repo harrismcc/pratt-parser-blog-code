@@ -63,14 +63,19 @@ class CheckFunction implements TypeChecker {
   check(node: AST.FunctionNode): TypeError[] {
     const errors: TypeError[] = [];
 
+    // First typecheck the argument
+    const argErrors = typecheckNode(node.arg);
+    errors.concat(argErrors);
+
     const functionName = node.name
-    const argType = builtins[functionName];
+    const argType = builtins[functionName].inputType;
+    const returnType = builtins[functionName].resultType;
 
     // we found a builtin function
     if (argType) {
 
       // typecheck the argument
-      if (node.arg?.nodeType != argType) {
+      if (argType != 'any' && node.arg?.outputType?.valueType != argType) {
         errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
       }
     }
@@ -83,10 +88,13 @@ class CheckFunction implements TypeChecker {
     // If no type errors, update the output type of this node, based on the outputType of its argument
     if (errors.length == 0) {
       if (node.arg?.outputType?.status == 'Maybe-Undefined' || functionName == 'input') {
-        node.outputType = {status: 'Maybe-Undefined', valueType: node.arg?.outputType?.valueType};
+        node.outputType.status = 'Maybe-Undefined';
       } else {
-        node.outputType = {status: 'Definitely', valueType: node.arg?.outputType?.valueType};
+        node.outputType.status = 'Definitely';
       }
+
+      node.outputType.valueType = returnType;
+
     }    
 
     return errors;
@@ -94,10 +102,10 @@ class CheckFunction implements TypeChecker {
 }
 
 // Dictionary of builtin functions that maps a function name to the type of its argument
-const builtins : {[name: string]: AST.NodeType} = {
-  "isDefined" : 'Function',
-  "inverse": 'Number',
-  "input": 'Number'
+const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.ValueType} } = {
+  "isDefined": {inputType: 'any', resultType: 'boolean'},
+  "inverse": {inputType: 'number', resultType: 'number'},
+  "input": {inputType: 'number', resultType: 'number'}
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
