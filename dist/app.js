@@ -931,10 +931,10 @@ class CheckBinary {
 class CheckFunction {
     check(node) {
         var _a, _b, _c, _d;
-        const errors = [];
+        let errors = [];
         // First typecheck the argument
         const argErrors = typecheckNode(node.arg);
-        errors.concat(argErrors);
+        errors = errors.concat(argErrors);
         const functionName = node.name;
         const argType = builtins[functionName].inputType;
         const returnType = builtins[functionName].resultType;
@@ -971,7 +971,52 @@ class CheckFunction {
 }
 class CheckChoose {
     check(node) {
-        return [];
+        let errors = [];
+        const predicate = node.case.predicate;
+        const consequent = node.case.consequent;
+        const otherwise = node.otherwise;
+        // First typecheck the inner nodes
+        const predErrors = typecheckNode(predicate);
+        const consErrors = typecheckNode(consequent);
+        const otherErrors = typecheckNode(otherwise);
+        errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
+        // check return types are the same for both cases
+        if (consequent.outputType.valueType != otherwise.outputType.valueType) {
+            errors.push(new TypeError("Return types are not the same for both cases", consequent.pos));
+            errors.push(new TypeError("Return types are not the same for both cases", otherwise.pos));
+        }
+        else {
+            // if return types are the same, set the return type of the choose node
+            node.outputType.valueType = consequent.outputType.valueType;
+        }
+        // check that the predicate returns a boolean
+        if (predicate.outputType.valueType != 'boolean') {
+            errors.push(new TypeError("Predicate must return a boolean", predicate.pos));
+        }
+        // propagate maybe-undefined type, or change to definitely
+        if (consequent.outputType.status == 'Maybe-Undefined') {
+            if (predicate.nodeType == 'Function') {
+                if (predicate.name == 'isDefined') {
+                    // NEXT: check if predicate.arg and consequent are euqal (simplification)
+                    node.outputType.status = 'Definitely';
+                }
+                else {
+                    // if the predicate doesn't error check (with isDefined), it can't be Definitely
+                    node.outputType.status = 'Maybe-Undefined';
+                }
+            }
+            else {
+                // if the predicate isn't a function, no way it's error checked
+                node.outputType.status = 'Maybe-Undefined';
+            }
+        }
+        else if (otherwise.outputType.status == 'Maybe-Undefined') {
+            node.outputType.status = 'Maybe-Undefined';
+        }
+        else {
+            node.outputType.status = 'Definitely';
+        }
+        return errors;
     }
 }
 // Dictionary of builtin functions that maps a function name to the type of its argument
