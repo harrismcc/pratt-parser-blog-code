@@ -106,3 +106,22 @@ export class FunctionParselet implements InitialParselet {
     }
   }
 }
+
+export class ChooseParselet implements InitialParselet {
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token) {
+
+    const predicate = parser.parse(tokens, 0);
+    const consequent = parser.parse(tokens, 0);
+    tokens.expectToken('CHOOSE2');
+    const otherwise = parser.parse(tokens, 0);
+
+    return {
+      nodeType: 'Choose' as 'Choose',
+      case: { predicate: predicate, consequent: consequent },
+      otherwise: otherwise,
+      outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
+                    valueType: undefined },
+      pos: token2pos(token)
+    }
+  }
+}

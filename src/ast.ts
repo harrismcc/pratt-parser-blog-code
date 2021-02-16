@@ -44,15 +44,16 @@ export type FunctionNode = {
   outputType: Possible<ValueType>;
   pos: Position;
 }
-/*
+
 export type ChooseNode = {
   nodeType: 'Choose';
   case: { predicate: Node, consequent: Node };
   otherwise: Node;
+  outputType: Possible<ValueType>;
   pos: Position
 }
-*/
-export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode| undefined;
+
+export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode | ChooseNode | undefined;
 
 // on to the proof of concept stuff
 

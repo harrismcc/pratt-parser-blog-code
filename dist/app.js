@@ -128,7 +128,14 @@ function getDefaultToken(stream, state) {
         }
         return emitToken('COMMENT');
     }
-    // here we can hardcode when to be a choose node not an identifier to get around parsing
+    // hardcode when to be a choose node not an identifier to get around parsing
+    if (stream.match(/WHEN/)) {
+        return emitToken('CHOOSE1');
+    }
+    // Remove otherwise clause for now
+    if (stream.match(/OTHERWISE/)) {
+        return emitToken('CHOOSE2');
+    }
     // Identifiers
     // For now, the form of a valid identifier is: an alphabetic character,
     // followed by one or more alphanumeric characters.
@@ -539,6 +546,9 @@ function MakeMode(_config, _modeOptions) {
                     return 'operator';
                 case 'COMMENT':
                     return 'comment';
+                case 'CHOOSE1':
+                case 'CHOOSE2':
+                    return 'choose';
                 case 'IDENTIFIER':
                     return 'variable';
                 case 'ERROR':
@@ -666,6 +676,7 @@ class Parser extends AbstractParser {
             FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
             IDENTIFIER: new Parselet.FunctionParselet(),
+            CHOOSE1: new Parselet.ChooseParselet()
         };
     }
     consequentMap() {
@@ -689,7 +700,7 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
+exports.ChooseParselet = exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
     parse(_parser, _tokens, token) {
@@ -769,6 +780,22 @@ class FunctionParselet {
     }
 }
 exports.FunctionParselet = FunctionParselet;
+class ChooseParselet {
+    parse(parser, tokens, token) {
+        const predicate = parser.parse(tokens, 0);
+        const consequent = parser.parse(tokens, 0);
+        tokens.expectToken('CHOOSE2');
+        const otherwise = parser.parse(tokens, 0);
+        return {
+            nodeType: 'Choose',
+            case: { predicate: predicate, consequent: consequent },
+            otherwise: otherwise,
+            outputType: { status: 'Maybe-Undefined', valueType: undefined },
+            pos: position_1.token2pos(token)
+        };
+    }
+}
+exports.ChooseParselet = ChooseParselet;
 
 });
 ___scope___.file("src/position.js", function(exports, require, module, __filename, __dirname){
@@ -942,6 +969,11 @@ class CheckFunction {
         return errors;
     }
 }
+class CheckChoose {
+    check(node) {
+        return [];
+    }
+}
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins = {
     "isDefined": { inputType: 'any', resultType: 'boolean' },
@@ -953,7 +985,8 @@ const checkerMap = {
     'Number': new CheckNumber(),
     'Boolean': new CheckBoolean(),
     'BinaryOperation': new CheckBinary(),
-    'Function': new CheckFunction()
+    'Function': new CheckFunction(),
+    'Choose': new CheckChoose()
 };
 
 });

@@ -110,8 +110,15 @@ function getDefaultToken(
     return emitToken('COMMENT');
   }
 
-  // here we can hardcode when to be a choose node not an identifier to get around parsing
-  
+  // hardcode when to be a choose node not an identifier to get around parsing
+  if (stream.match(/WHEN/)) {
+    return emitToken('CHOOSE1');
+  }
+
+  // Remove otherwise clause for now
+  if (stream.match(/OTHERWISE/)) {
+    return emitToken('CHOOSE2');
+  }
 
   // Identifiers
   // For now, the form of a valid identifier is: an alphabetic character,
@@ -143,6 +150,8 @@ export type TokenType =
   | 'COMMENT'
   | 'ERROR'
   | 'IDENTIFIER'
+  | 'CHOOSE1'
+  | 'CHOOSE2'
 
 export interface Token<T extends TokenType = TokenType> {
   type: T;
