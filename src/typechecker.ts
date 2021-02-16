@@ -85,6 +85,14 @@ class CheckFunction implements TypeChecker {
       errors.push(new TypeError("unknown function", node.pos));
     }
 
+    // only show error if in sink "node"
+    if (functionName == 'sink') {
+      // if sink "node" takes in possibly undefined values, warn the author
+      if (node.arg.outputType.status == 'Maybe-Undefined') {
+        errors.push(new TypeError("User facing content could be undefined", node.arg.pos));
+      }
+    }
+
     // If no type errors, update the output type of this node, based on the outputType of its argument
     if (errors.length == 0) {
       if (node.arg?.outputType?.status == 'Maybe-Undefined' || functionName == 'input') {
@@ -105,7 +113,8 @@ class CheckFunction implements TypeChecker {
 const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.ValueType} } = {
   "isDefined": {inputType: 'any', resultType: 'boolean'},
   "inverse": {inputType: 'number', resultType: 'number'},
-  "input": {inputType: 'number', resultType: 'number'}
+  "input": {inputType: 'number', resultType: 'number'},
+  "sink": {inputType: 'any', resultType: 'any'}
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {

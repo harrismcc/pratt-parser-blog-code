@@ -922,6 +922,13 @@ class CheckFunction {
         else {
             errors.push(new TypeError("unknown function", node.pos));
         }
+        // only show error if in sink "node"
+        if (functionName == 'sink') {
+            // if sink "node" takes in possibly undefined values, warn the author
+            if (node.arg.outputType.status == 'Maybe-Undefined') {
+                errors.push(new TypeError("User facing content could be undefined", node.arg.pos));
+            }
+        }
         // If no type errors, update the output type of this node, based on the outputType of its argument
         if (errors.length == 0) {
             if (((_d = (_c = node.arg) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined' || functionName == 'input') {
@@ -939,7 +946,8 @@ class CheckFunction {
 const builtins = {
     "isDefined": { inputType: 'any', resultType: 'boolean' },
     "inverse": { inputType: 'number', resultType: 'number' },
-    "input": { inputType: 'number', resultType: 'number' }
+    "input": { inputType: 'number', resultType: 'number' },
+    "sink": { inputType: 'any', resultType: 'any' }
 };
 const checkerMap = {
     'Number': new CheckNumber(),
