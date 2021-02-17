@@ -876,6 +876,7 @@ ___scope___.file("src/typechecker.js", function(exports, require, module, __file
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.typecheck = void 0;
+const equals_1 = require("./equals");
 function typecheck(nodes) {
     const errors = nodes.map(n => typecheckNode(n));
     return [].concat(...errors);
@@ -930,7 +931,7 @@ class CheckBinary {
 }
 class CheckFunction {
     check(node) {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         let errors = [];
         // First typecheck the argument
         const argErrors = typecheckNode(node.arg);
@@ -952,13 +953,13 @@ class CheckFunction {
         // only show error if in sink "node"
         if (functionName == 'sink') {
             // if sink "node" takes in possibly undefined values, warn the author
-            if (node.arg.outputType.status == 'Maybe-Undefined') {
-                errors.push(new TypeError("User facing content could be undefined", node.arg.pos));
+            if (((_d = (_c = node.arg) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined') {
+                errors.push(new TypeError("User facing content could be undefined.", node.arg.pos));
             }
         }
         // If no type errors, update the output type of this node, based on the outputType of its argument
         if (errors.length == 0) {
-            if (((_d = (_c = node.arg) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined' || functionName == 'input') {
+            if (((_f = (_e = node.arg) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.status) == 'Maybe-Undefined' || functionName == 'input') {
                 node.outputType.status = 'Maybe-Undefined';
             }
             else {
@@ -971,6 +972,7 @@ class CheckFunction {
 }
 class CheckChoose {
     check(node) {
+        var _a, _b;
         let errors = [];
         const predicate = node.case.predicate;
         const consequent = node.case.consequent;
@@ -981,7 +983,7 @@ class CheckChoose {
         const otherErrors = typecheckNode(otherwise);
         errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
         // check return types are the same for both cases
-        if (consequent.outputType.valueType != otherwise.outputType.valueType) {
+        if (((_a = consequent === null || consequent === void 0 ? void 0 : consequent.outputType) === null || _a === void 0 ? void 0 : _a.valueType) != ((_b = otherwise === null || otherwise === void 0 ? void 0 : otherwise.outputType) === null || _b === void 0 ? void 0 : _b.valueType)) {
             errors.push(new TypeError("Return types are not the same for both cases", consequent.pos));
             errors.push(new TypeError("Return types are not the same for both cases", otherwise.pos));
         }
@@ -997,8 +999,10 @@ class CheckChoose {
         if (consequent.outputType.status == 'Maybe-Undefined') {
             if (predicate.nodeType == 'Function') {
                 if (predicate.name == 'isDefined') {
-                    // NEXT: check if predicate.arg and consequent are euqal (simplification)
-                    node.outputType.status = 'Definitely';
+                    // check if predicate.arg and consequent are equal (simplification)
+                    if (equals_1.equals(predicate.arg, consequent)) {
+                        node.outputType.status = 'Definitely';
+                    }
                 }
                 else {
                     // if the predicate doesn't error check (with isDefined), it can't be Definitely
@@ -1032,6 +1036,77 @@ const checkerMap = {
     'BinaryOperation': new CheckBinary(),
     'Function': new CheckFunction(),
     'Choose': new CheckChoose()
+};
+
+});
+___scope___.file("src/equals.js", function(exports, require, module, __filename, __dirname){
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.equals = void 0;
+function equals(left, right) {
+    if (left.nodeType != right.nodeType) {
+        return false;
+    }
+    else {
+        return equalsMap[left.nodeType].eq(left, right);
+    }
+}
+exports.equals = equals;
+class EqNumber {
+    eq(left, right) {
+        if (left.value == right.value) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+}
+class EqBoolean {
+    eq(left, right) {
+        if (left.value == right.value) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+}
+class EqBinary {
+    eq(left, right) {
+        if (left.operator == right.operator &&
+            equals(left.left, right.left) && equals(left.right, right.right)) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+}
+class EqFunction {
+    eq(left, right) {
+        if (left.name == right.name &&
+            equals(left.arg, right.arg)) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+}
+// THIS IS LEFT AS AN EXERCISE TO THE READER
+class EqChoose {
+    eq(left, right) {
+        return false;
+    }
+}
+const equalsMap = {
+    'Number': new EqNumber(),
+    'Boolean': new EqBoolean(),
+    'BinaryOperation': new EqBinary(),
+    'Function': new EqFunction(),
+    'Choose': new EqChoose()
 };
 
 });

@@ -1,5 +1,6 @@
 import {Position} from './position';
 import * as AST from './ast';
+import {equals} from './equals';
 
 export function typecheck(nodes: AST.Node[]): TypeError[] {
   const errors = nodes.map(n => typecheckNode(n));
@@ -88,8 +89,8 @@ class CheckFunction implements TypeChecker {
     // only show error if in sink "node"
     if (functionName == 'sink') {
       // if sink "node" takes in possibly undefined values, warn the author
-      if (node.arg.outputType.status == 'Maybe-Undefined') {
-        errors.push(new TypeError("User facing content could be undefined", node.arg.pos));
+      if (node.arg?.outputType?.status == 'Maybe-Undefined') {
+        errors.push(new TypeError("User facing content could be undefined.", node.arg.pos));
       }
     }
 
@@ -124,7 +125,7 @@ class CheckChoose implements TypeChecker {
     errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
 
     // check return types are the same for both cases
-    if (consequent.outputType.valueType != otherwise.outputType.valueType) {
+    if (consequent?.outputType?.valueType != otherwise?.outputType?.valueType) {
       errors.push(new TypeError("Return types are not the same for both cases", consequent.pos));
       errors.push(new TypeError("Return types are not the same for both cases", otherwise.pos));
     } else {
@@ -142,8 +143,10 @@ class CheckChoose implements TypeChecker {
       if (predicate.nodeType == 'Function') {
         if (predicate.name == 'isDefined') {
 
-          // NEXT: check if predicate.arg and consequent are euqal (simplification)
-          node.outputType.status = 'Definitely';
+          // check if predicate.arg and consequent are equal (simplification)
+          if (equals(predicate.arg, consequent)) {
+            node.outputType.status = 'Definitely';
+          }
         } else {
           // if the predicate doesn't error check (with isDefined), it can't be Definitely
           node.outputType.status = 'Maybe-Undefined';
