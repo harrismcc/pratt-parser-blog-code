@@ -996,21 +996,14 @@ class CheckChoose {
             errors.push(new TypeError("Predicate must return a boolean", predicate.pos));
         }
         // propagate maybe-undefined type, or change to definitely
-        if (consequent.outputType.status == 'Maybe-Undefined') {
-            if (predicate.nodeType == 'Function') {
-                if (predicate.name == 'isDefined') {
-                    // check if predicate.arg and consequent are equal (simplification)
-                    if (equals_1.equals(predicate.arg, consequent)) {
-                        node.outputType.status = 'Definitely';
-                    }
-                }
-                else {
-                    // if the predicate doesn't error check (with isDefined), it can't be Definitely
-                    node.outputType.status = 'Maybe-Undefined';
-                }
+        // if the predicate is not a function, we cannot error check its type
+        if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
+            // if the function is isDefined we need to make sure the pred and cons are equal
+            if (predicate.name == 'isDefined' && equals_1.equals(predicate.arg, consequent)) {
+                node.outputType.status = 'Definitely';
             }
             else {
-                // if the predicate isn't a function, no way it's error checked
+                // if the predicate doesn't error check (with isDefined), it can't be Definitely
                 node.outputType.status = 'Maybe-Undefined';
             }
         }
