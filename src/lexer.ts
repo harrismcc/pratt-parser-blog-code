@@ -120,12 +120,17 @@ function getDefaultToken(
     return emitToken('CHOOSE2');
   }
 
+  if (stream.match(/[A-Z]([a-z|A-Z])+/)) {
+    return emitToken('FUNCTION');
+  }
+
   // Identifiers
   // For now, the form of a valid identifier is: an alphabetic character,
   // followed by one or more alphanumeric characters.
-  if (stream.match(/([a-z|A-Z])+\w+/)) {
-    return emitToken('IDENTIFIER');
+  if (stream.match(/[a-z]([a-z|A-Z])+\w+/)) {
+    return emitToken('VARIABLE');
   }
+  
 
   stream.next();
   return emitToken('ERROR');
@@ -149,7 +154,8 @@ export type TokenType =
   | ')'
   | 'COMMENT'
   | 'ERROR'
-  | 'IDENTIFIER'
+  | 'FUNCTION'
+  | 'VARIABLE'
   | 'CHOOSE1'
   | 'CHOOSE2'
 

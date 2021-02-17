@@ -57,7 +57,10 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
         case 'CHOOSE2':
           return 'choose';
 
-        case 'IDENTIFIER':
+        case 'FUNCTION':
+          return 'function';
+
+        case 'VARIABLE':
           return 'variable';
 
         case 'ERROR':

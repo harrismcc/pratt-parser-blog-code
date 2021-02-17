@@ -11,6 +11,7 @@ export type NodeType =
   | 'Choose'
   | 'Identifier'
   | 'Function'
+  | 'Variable'
   | 'CalculatorReference';
 
 export type NumberNode = {
@@ -53,7 +54,21 @@ export type ChooseNode = {
   pos: Position
 }
 
-export type Node = BooleanNode | NumberNode | BinaryOperationNode | FunctionNode | ChooseNode | undefined;
+export type VariableNode = {
+  nodeType: 'Variable';
+  name: string;
+  outputType: Possible<ValueType>;
+  pos: Position;
+}
+
+export type Node = 
+  | BooleanNode 
+  | NumberNode 
+  | BinaryOperationNode 
+  | FunctionNode 
+  | ChooseNode 
+  | VariableNode 
+  | undefined;
 
 // on to the proof of concept stuff
 

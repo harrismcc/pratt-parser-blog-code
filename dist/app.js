@@ -136,11 +136,14 @@ function getDefaultToken(stream, state) {
     if (stream.match(/OTHERWISE/)) {
         return emitToken('CHOOSE2');
     }
+    if (stream.match(/[A-Z]([a-z|A-Z])+/)) {
+        return emitToken('FUNCTION');
+    }
     // Identifiers
     // For now, the form of a valid identifier is: an alphabetic character,
     // followed by one or more alphanumeric characters.
-    if (stream.match(/([a-z|A-Z])+\w+/)) {
-        return emitToken('IDENTIFIER');
+    if (stream.match(/[a-z]([a-z|A-Z])+\w+/)) {
+        return emitToken('VARIABLE');
     }
     stream.next();
     return emitToken('ERROR');
@@ -549,7 +552,9 @@ function MakeMode(_config, _modeOptions) {
                 case 'CHOOSE1':
                 case 'CHOOSE2':
                     return 'choose';
-                case 'IDENTIFIER':
+                case 'FUNCTION':
+                    return 'function';
+                case 'VARIABLE':
                     return 'variable';
                 case 'ERROR':
                     return 'error';
@@ -675,8 +680,9 @@ class Parser extends AbstractParser {
             TRUE: new Parselet.BooleanParselet(true),
             FALSE: new Parselet.BooleanParselet(false),
             '(': new Parselet.ParenParselet(),
-            IDENTIFIER: new Parselet.FunctionParselet(),
-            CHOOSE1: new Parselet.ChooseParselet()
+            FUNCTION: new Parselet.FunctionParselet(),
+            CHOOSE1: new Parselet.ChooseParselet(),
+            VARIABLE: new Parselet.VariableParselet()
         };
     }
     consequentMap() {
@@ -700,7 +706,7 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ChooseParselet = exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
+exports.VariableParselet = exports.ChooseParselet = exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
     parse(_parser, _tokens, token) {
@@ -796,6 +802,17 @@ class ChooseParselet {
     }
 }
 exports.ChooseParselet = ChooseParselet;
+class VariableParselet {
+    parse(parser, tokens, token) {
+        return {
+            nodeType: 'Variable',
+            name: token.text,
+            outputType: { status: 'Maybe-Undefined', valueType: undefined },
+            pos: position_1.token2pos(token)
+        };
+    }
+}
+exports.VariableParselet = VariableParselet;
 
 });
 ___scope___.file("src/position.js", function(exports, require, module, __filename, __dirname){
@@ -1016,6 +1033,11 @@ class CheckChoose {
         return errors;
     }
 }
+class CheckVariable {
+    check(node) {
+        return [];
+    }
+}
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins = {
     "isDefined": { inputType: 'any', resultType: 'boolean' },
@@ -1028,7 +1050,8 @@ const checkerMap = {
     'Boolean': new CheckBoolean(),
     'BinaryOperation': new CheckBinary(),
     'Function': new CheckFunction(),
-    'Choose': new CheckChoose()
+    'Choose': new CheckChoose(),
+    'Variable': new CheckVariable()
 };
 
 });

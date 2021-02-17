@@ -158,6 +158,12 @@ class CheckChoose implements TypeChecker {
   }
 }
 
+class CheckVariable implements TypeChecker {
+  check(node: AST.VariableNode): TypeError[] {
+    return [];
+  }
+}
+
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.ValueType} } = {
   "isDefined": {inputType: 'any', resultType: 'boolean'},
@@ -171,5 +177,6 @@ const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'Boolean' : new CheckBoolean(),
   'BinaryOperation' : new CheckBinary(),
   'Function' : new CheckFunction(),
-  'Choose': new CheckChoose()
+  'Choose': new CheckChoose(),
+  'Variable': new CheckVariable()
 }

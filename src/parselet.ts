@@ -125,3 +125,16 @@ export class ChooseParselet implements InitialParselet {
     }
   }
 }
+
+export class VariableParselet implements InitialParselet {
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token) {
+
+    return {
+      nodeType: 'Variable' as 'Variable',
+      name: token.text,
+      outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
+                    valueType: undefined },
+      pos: token2pos(token)
+    }
+  }
+}
