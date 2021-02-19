@@ -25,6 +25,13 @@ export function join(start: Position, end: Position) {
   };
 }
 
+export function pos2string(pos: Position): string {
+  return pos.first_line.toString() + 
+         pos.first_column.toString() + 
+         pos.last_line.toString() + 
+         pos.last_column.toString();
+}
+
 // note, extending Error in the browser is problematic
 // https://stackoverflow.com/questions/33870684/why-doesnt-instanceof-work-on-instances-of-error-subclasses-under-babel-node
 export class ParseError {

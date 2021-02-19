@@ -17,7 +17,9 @@ const outputContainer = document.createElement('pre');
 outputContainer.className = 'output-container';
 document.body.appendChild(outputContainer);
 function updateOutput() {
-    const ast = parser_1.parse(cm.getDoc().getValue());
+    // adding a variable lookup table
+    let varMap = {};
+    const ast = parser_1.parse(cm.getDoc().getValue(), varMap);
     const typeErrors = typechecker_1.typecheck(ast.nodes);
     if (ast.errors.length > 0) {
         cm.setOption('script-errors', ast.errors);
@@ -112,6 +114,10 @@ function getDefaultToken(stream, state) {
     if (stream.match(/\)/)) {
         return emitToken(')');
     }
+    // adding an equals operator
+    if (stream.match(/\=/)) {
+        return emitToken('=');
+    }
     if (stream.match(/-?[0-9]+(\.[0-9]+)?/)) {
         return emitToken('NUMBER');
     }
@@ -142,8 +148,8 @@ function getDefaultToken(stream, state) {
     // Identifiers
     // For now, the form of a valid identifier is: an alphabetic character,
     // followed by one or more alphanumeric characters.
-    if (stream.match(/[a-z]([a-z|A-Z])+\w+/)) {
-        return emitToken('VARIABLE');
+    if (stream.match(/[a-z]([a-z|A-Z])*/)) {
+        return emitToken('IDENTIFIER');
     }
     stream.next();
     return emitToken('ERROR');
@@ -546,6 +552,7 @@ function MakeMode(_config, _modeOptions) {
                 case '*':
                 case '/':
                 case '^':
+                case '=':
                     return 'operator';
                 case 'COMMENT':
                     return 'comment';
@@ -554,7 +561,7 @@ function MakeMode(_config, _modeOptions) {
                     return 'choose';
                 case 'FUNCTION':
                     return 'function';
-                case 'VARIABLE':
+                case 'IDENTIFIER':
                     return 'variable';
                 case 'ERROR':
                     return 'error';
@@ -602,13 +609,13 @@ exports.Parser = exports.AbstractParser = exports.parse = void 0;
 const Parselet = __importStar(require("./parselet"));
 const tokenstream_1 = require("./tokenstream");
 const position_1 = require("./position");
-function parse(text) {
+function parse(text, varMap) {
     const nodes = [];
     const tokens = new tokenstream_1.TokenStream(text);
     const parser = new Parser();
     while (tokens.peek()) {
         try {
-            nodes.push(parser.parse(tokens, 0));
+            nodes.push(parser.parse(tokens, 0, varMap));
         }
         catch (e) {
             return {
@@ -644,7 +651,7 @@ class AbstractParser {
             throw new position_1.ParseError(`Unexpected token type ${token.type}.`, position_1.token2pos(token));
         }
     }
-    parse(tokens, currentBindingPower) {
+    parse(tokens, currentBindingPower, varMap) {
         const token = tokens.consume();
         if (!token) {
             throw new position_1.ParseError(`Unexpected end of tokens.`, position_1.token2pos(tokens.last()));
@@ -653,7 +660,7 @@ class AbstractParser {
         if (!initialParselet) {
             throw new position_1.ParseError(`Unexpected token type ${token.type}`, position_1.token2pos(token));
         }
-        let left = initialParselet.parse(this, tokens, token);
+        let left = initialParselet.parse(this, tokens, token, varMap);
         while (true) {
             const next = tokens.peek();
             if (!next) {
@@ -667,7 +674,7 @@ class AbstractParser {
                 break;
             }
             tokens.consume();
-            left = consequentParselet.parse(this, tokens, left, next);
+            left = consequentParselet.parse(this, tokens, left, next, varMap);
         }
         return left;
     }
@@ -682,7 +689,7 @@ class Parser extends AbstractParser {
             '(': new Parselet.ParenParselet(),
             FUNCTION: new Parselet.FunctionParselet(),
             CHOOSE1: new Parselet.ChooseParselet(),
-            VARIABLE: new Parselet.VariableParselet()
+            IDENTIFIER: new Parselet.IdentifierParselet()
         };
     }
     consequentMap() {
@@ -706,16 +713,19 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.VariableParselet = exports.ChooseParselet = exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
+exports.IdentifierParselet = exports.VariableAssignmentParselet = exports.ChooseParselet = exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
-    parse(_parser, _tokens, token) {
+    parse(_parser, _tokens, token, varMap) {
+        const position = position_1.token2pos(token);
+        const id = position_1.pos2string(position);
         return {
             nodeType: 'Number',
             value: parseFloat(token.text),
             outputType: { status: 'Definitely',
                 valueType: 'number' },
-            pos: position_1.token2pos(token)
+            pos: position,
+            nodeId: id
         };
     }
 }
@@ -724,20 +734,23 @@ class BooleanParselet {
     constructor(value) {
         this.value = value;
     }
-    parse(_parser, _tokens, token) {
+    parse(_parser, _tokens, token, varMap) {
+        const position = position_1.token2pos(token);
+        const id = position_1.pos2string(position);
         return {
             nodeType: 'Boolean',
             value: this.value,
             outputType: { status: 'Definitely',
                 valueType: 'boolean' },
-            pos: position_1.token2pos(token)
+            pos: position,
+            nodeId: id
         };
     }
 }
 exports.BooleanParselet = BooleanParselet;
 class ParenParselet {
-    parse(parser, tokens, _token) {
-        const exp = parser.parse(tokens, 0);
+    parse(parser, tokens, _token, varMap) {
+        const exp = parser.parse(tokens, 0, varMap);
         tokens.expectToken(')');
         return exp;
     }
@@ -755,16 +768,19 @@ class BinaryOperatorParselet extends ConsequentParselet {
         super(tokenType, associativity);
         this.tokenType = tokenType;
     }
-    parse(parser, tokens, left, token) {
+    parse(parser, tokens, left, token, varMap) {
         const bindingPower = parser.bindingPower(token);
-        const right = parser.parse(tokens, this.associativity == 'left' ? bindingPower : bindingPower - 1);
+        const right = parser.parse(tokens, this.associativity == 'left' ? bindingPower : bindingPower - 1, varMap);
+        const position = position_1.join(left.pos, position_1.token2pos(tokens.last()));
+        const id = position_1.pos2string(position);
         return {
             nodeType: 'BinaryOperation',
             operator: this.tokenType,
             left,
             right,
             outputType: undefined,
-            pos: position_1.join(left.pos, position_1.token2pos(tokens.last()))
+            pos: position,
+            nodeId: id
         };
     }
 }
@@ -772,54 +788,94 @@ exports.BinaryOperatorParselet = BinaryOperatorParselet;
 // Parse function calls
 // Limitation: Functions are allowed to take exactly one argument
 class FunctionParselet {
-    parse(parser, tokens, token) {
+    parse(parser, tokens, token, varMap) {
+        const position = position_1.token2pos(token);
+        const id = position_1.pos2string(position);
         tokens.expectToken('(');
-        const exp = parser.parse(tokens, 0); // allow for one argument
+        const exp = parser.parse(tokens, 0, varMap); // allow for one argument
         tokens.expectToken(')');
         return {
             nodeType: 'Function',
             name: token.text,
             arg: exp,
             outputType: { status: 'Maybe-Undefined', valueType: undefined },
-            pos: position_1.token2pos(token)
+            pos: position,
+            nodeId: id
         };
     }
 }
 exports.FunctionParselet = FunctionParselet;
 class ChooseParselet {
-    parse(parser, tokens, token) {
-        const predicate = parser.parse(tokens, 0);
-        const consequent = parser.parse(tokens, 0);
+    parse(parser, tokens, token, varMap) {
+        const position = position_1.token2pos(token);
+        const id = position_1.pos2string(position);
+        const predicate = parser.parse(tokens, 0, varMap);
+        const consequent = parser.parse(tokens, 0, varMap);
         tokens.expectToken('CHOOSE2');
-        const otherwise = parser.parse(tokens, 0);
+        const otherwise = parser.parse(tokens, 0, varMap);
         return {
             nodeType: 'Choose',
             case: { predicate: predicate, consequent: consequent },
             otherwise: otherwise,
             outputType: { status: 'Maybe-Undefined', valueType: undefined },
-            pos: position_1.token2pos(token)
+            pos: position,
+            nodeId: id
         };
     }
 }
 exports.ChooseParselet = ChooseParselet;
-class VariableParselet {
-    parse(parser, tokens, token) {
+class VariableAssignmentParselet {
+    parse(parser, tokens, token, varMap) {
+        var _a;
+        const position = position_1.token2pos(token);
+        const id = position_1.pos2string(position);
+        // deal with variable assignment
+        tokens.expectToken('=');
+        const assignment = parser.parse(tokens, 0, varMap);
+        // need to save the variable and its assignment in a lookup table
+        varMap[token.text] = assignment.nodeId;
         return {
-            nodeType: 'Variable',
+            nodeType: 'VariableAssignment',
             name: token.text,
-            outputType: { status: 'Maybe-Undefined', valueType: undefined },
-            pos: position_1.token2pos(token)
+            assignment: assignment,
+            outputType: { status: "Maybe-Undefined",
+                valueType: (_a = assignment === null || assignment === void 0 ? void 0 : assignment.outputType) === null || _a === void 0 ? void 0 : _a.valueType },
+            pos: position,
+            nodeId: id
         };
     }
 }
-exports.VariableParselet = VariableParselet;
+exports.VariableAssignmentParselet = VariableAssignmentParselet;
+class IdentifierParselet {
+    parse(parser, tokens, token, varMap) {
+        const position = position_1.token2pos(token);
+        const id = position_1.pos2string(position);
+        // need to look up known variables in a lookup table (map?)
+        const assignmentId = varMap[token.text];
+        if (!assignmentId) {
+            const varParselet = new VariableAssignmentParselet();
+            return varParselet.parse(parser, tokens, token, varMap);
+        }
+        else {
+            return {
+                nodeType: 'Identifier',
+                name: token.text,
+                assignmentId: assignmentId,
+                outputType: { status: "Maybe-Undefined", valueType: undefined },
+                pos: position,
+                nodeId: id
+            };
+        }
+    }
+}
+exports.IdentifierParselet = IdentifierParselet;
 
 });
 ___scope___.file("src/position.js", function(exports, require, module, __filename, __dirname){
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ParseError = exports.join = exports.token2pos = void 0;
+exports.ParseError = exports.pos2string = exports.join = exports.token2pos = void 0;
 function token2pos(token) {
     return {
         first_line: token.line,
@@ -838,6 +894,13 @@ function join(start, end) {
     };
 }
 exports.join = join;
+function pos2string(pos) {
+    return pos.first_line.toString() +
+        pos.first_column.toString() +
+        pos.last_line.toString() +
+        pos.last_column.toString();
+}
+exports.pos2string = pos2string;
 // note, extending Error in the browser is problematic
 // https://stackoverflow.com/questions/33870684/why-doesnt-instanceof-work-on-instances-of-error-subclasses-under-babel-node
 class ParseError {
@@ -968,7 +1031,7 @@ class CheckFunction {
             errors.push(new TypeError("unknown function", node.pos));
         }
         // only show error if in sink "node"
-        if (functionName == 'sink') {
+        if (functionName == 'Sink') {
             // if sink "node" takes in possibly undefined values, warn the author
             if (((_d = (_c = node.arg) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined') {
                 errors.push(new TypeError("User facing content could be undefined.", node.arg.pos));
@@ -976,8 +1039,14 @@ class CheckFunction {
         }
         // If no type errors, update the output type of this node, based on the outputType of its argument
         if (errors.length == 0) {
-            if (((_f = (_e = node.arg) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.status) == 'Maybe-Undefined' || functionName == 'input') {
-                node.outputType.status = 'Maybe-Undefined';
+            if (((_f = (_e = node.arg) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.status) == 'Maybe-Undefined' || functionName == 'Input') {
+                // IsDefined should always output a definitely regardless of argument status
+                if (functionName != 'IsDefined') {
+                    node.outputType.status = 'Maybe-Undefined';
+                }
+                else {
+                    node.outputType.status = 'Definitely';
+                }
             }
             else {
                 node.outputType.status = 'Definitely';
@@ -1016,7 +1085,7 @@ class CheckChoose {
         // if the predicate is not a function, we cannot error check its type
         if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
             // if the function is isDefined we need to make sure the pred and cons are equal
-            if (predicate.name == 'isDefined' && equals_1.equals(predicate.arg, consequent)) {
+            if (predicate.name == 'IsDefined' && equals_1.equals(predicate.arg, consequent)) {
                 node.outputType.status = 'Definitely';
             }
             else {
@@ -1038,12 +1107,17 @@ class CheckVariable {
         return [];
     }
 }
+class CheckIdentifier {
+    check(node) {
+        return [];
+    }
+}
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins = {
-    "isDefined": { inputType: 'any', resultType: 'boolean' },
-    "inverse": { inputType: 'number', resultType: 'number' },
-    "input": { inputType: 'number', resultType: 'number' },
-    "sink": { inputType: 'any', resultType: 'any' }
+    "IsDefined": { inputType: 'any', resultType: 'boolean' },
+    "Inverse": { inputType: 'number', resultType: 'number' },
+    "Input": { inputType: 'number', resultType: 'number' },
+    "Sink": { inputType: 'any', resultType: 'any' }
 };
 const checkerMap = {
     'Number': new CheckNumber(),
@@ -1051,7 +1125,8 @@ const checkerMap = {
     'BinaryOperation': new CheckBinary(),
     'Function': new CheckFunction(),
     'Choose': new CheckChoose(),
-    'Variable': new CheckVariable()
+    'VariableAssignment': new CheckVariable(),
+    'Identifier': new CheckIdentifier()
 };
 
 });

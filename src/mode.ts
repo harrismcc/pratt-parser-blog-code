@@ -48,6 +48,7 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
         case '*':
         case '/':
         case '^':
+        case '=':
           return 'operator';
 
         case 'COMMENT':
@@ -60,7 +61,7 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
         case 'FUNCTION':
           return 'function';
 
-        case 'VARIABLE':
+        case 'IDENTIFIER':
           return 'variable';
 
         case 'ERROR':

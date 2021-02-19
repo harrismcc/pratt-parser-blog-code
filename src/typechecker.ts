@@ -87,7 +87,7 @@ class CheckFunction implements TypeChecker {
     }
 
     // only show error if in sink "node"
-    if (functionName == 'sink') {
+    if (functionName == 'Sink') {
       // if sink "node" takes in possibly undefined values, warn the author
       if (node.arg?.outputType?.status == 'Maybe-Undefined') {
         errors.push(new TypeError("User facing content could be undefined.", node.arg.pos));
@@ -96,8 +96,14 @@ class CheckFunction implements TypeChecker {
 
     // If no type errors, update the output type of this node, based on the outputType of its argument
     if (errors.length == 0) {
-      if (node.arg?.outputType?.status == 'Maybe-Undefined' || functionName == 'input') {
-        node.outputType.status = 'Maybe-Undefined';
+      if (node.arg?.outputType?.status == 'Maybe-Undefined' || functionName == 'Input') {
+        // IsDefined should always output a definitely regardless of argument status
+        if (functionName != 'IsDefined') {
+          node.outputType.status = 'Maybe-Undefined';
+        }
+        else {
+          node.outputType.status = 'Definitely';
+        }
       } else {
         node.outputType.status = 'Definitely';
       }
@@ -142,7 +148,7 @@ class CheckChoose implements TypeChecker {
     // if the predicate is not a function, we cannot error check its type
     if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
       // if the function is isDefined we need to make sure the pred and cons are equal
-      if (predicate.name == 'isDefined' && equals(predicate.arg, consequent)) {
+      if (predicate.name == 'IsDefined' && equals(predicate.arg, consequent)) {
         node.outputType.status = 'Definitely';
       } else {
         // if the predicate doesn't error check (with isDefined), it can't be Definitely
@@ -159,17 +165,23 @@ class CheckChoose implements TypeChecker {
 }
 
 class CheckVariable implements TypeChecker {
-  check(node: AST.VariableNode): TypeError[] {
+  check(node: AST.VariableAssignmentNode): TypeError[] {
+    return [];
+  }
+}
+
+class CheckIdentifier implements TypeChecker {
+  check(node: AST.IdentifierNode): TypeError[] {
     return [];
   }
 }
 
 // Dictionary of builtin functions that maps a function name to the type of its argument
 const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.ValueType} } = {
-  "isDefined": {inputType: 'any', resultType: 'boolean'},
-  "inverse": {inputType: 'number', resultType: 'number'},
-  "input": {inputType: 'number', resultType: 'number'},
-  "sink": {inputType: 'any', resultType: 'any'}
+  "IsDefined": {inputType: 'any', resultType: 'boolean'},
+  "Inverse": {inputType: 'number', resultType: 'number'},
+  "Input": {inputType: 'number', resultType: 'number'},
+  "Sink": {inputType: 'any', resultType: 'any'}
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
@@ -178,5 +190,6 @@ const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'BinaryOperation' : new CheckBinary(),
   'Function' : new CheckFunction(),
   'Choose': new CheckChoose(),
-  'Variable': new CheckVariable()
+  'VariableAssignment': new CheckVariable(),
+  'Identifier': new CheckIdentifier()
 }

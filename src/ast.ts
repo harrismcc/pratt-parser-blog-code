@@ -11,7 +11,6 @@ export type NodeType =
   | 'Choose'
   | 'Identifier'
   | 'Function'
-  | 'Variable'
   | 'CalculatorReference';
 
 export type NumberNode = {
@@ -19,6 +18,7 @@ export type NumberNode = {
   value: number;
   outputType: Definitely<ValueType>;
   pos: Position;
+  nodeId: string;
 };
 
 export type BooleanNode = {
@@ -26,6 +26,7 @@ export type BooleanNode = {
   value: boolean;
   outputType: Definitely<ValueType>;
   pos: Position;
+  nodeId: string;
 };
 
 export type BinaryOperationNode = {
@@ -35,6 +36,7 @@ export type BinaryOperationNode = {
   right: Node;
   outputType: Possible<ValueType> | undefined;
   pos: Position;
+  nodeId: string;
 };
 
 // Built to support isDefined(test()), isDefined(boolean), and test()
@@ -44,6 +46,7 @@ export type FunctionNode = {
   arg: Node;
   outputType: Possible<ValueType>;
   pos: Position;
+  nodeId: string;
 }
 
 export type ChooseNode = {
@@ -52,13 +55,25 @@ export type ChooseNode = {
   otherwise: Node;
   outputType: Possible<ValueType>;
   pos: Position
+  nodeId: string;
 }
 
-export type VariableNode = {
-  nodeType: 'Variable';
+export type VariableAssignmentNode = {
+  nodeType: 'VariableAssignment';
   name: string;
+  assignment: Node;
   outputType: Possible<ValueType>;
   pos: Position;
+  nodeId: string;
+}
+
+export type IdentifierNode = {
+  nodeType: 'Identifier';
+  name: string;
+  assignmentId: string;
+  outputType: Possible<ValueType>;
+  pos: Position;
+  nodeId: string;
 }
 
 export type Node = 
@@ -67,7 +82,8 @@ export type Node =
   | BinaryOperationNode 
   | FunctionNode 
   | ChooseNode 
-  | VariableNode 
+  | VariableAssignmentNode 
+  | IdentifierNode
   | undefined;
 
 // on to the proof of concept stuff

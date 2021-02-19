@@ -13,7 +13,11 @@ outputContainer.className = 'output-container';
 document.body.appendChild(outputContainer);
 
 function updateOutput() {
-  const ast = parse(cm.getDoc().getValue());
+
+  // adding a variable lookup table
+  let varMap: {[key: string]: string} = {};
+
+  const ast = parse(cm.getDoc().getValue(), varMap);
   const typeErrors = typecheck(ast.nodes);
 
   if (ast.errors.length > 0) {

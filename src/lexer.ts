@@ -90,6 +90,11 @@ function getDefaultToken(
     return emitToken(')');
   }
 
+  // adding an equals operator
+  if (stream.match(/\=/)) {
+    return emitToken('=');
+  }
+
   if (stream.match(/-?[0-9]+(\.[0-9]+)?/)) {
     return emitToken('NUMBER');
   }
@@ -127,8 +132,8 @@ function getDefaultToken(
   // Identifiers
   // For now, the form of a valid identifier is: an alphabetic character,
   // followed by one or more alphanumeric characters.
-  if (stream.match(/[a-z]([a-z|A-Z])+\w+/)) {
-    return emitToken('VARIABLE');
+  if (stream.match(/[a-z]([a-z|A-Z])*/)) {
+    return emitToken('IDENTIFIER');
   }
   
 
@@ -155,9 +160,10 @@ export type TokenType =
   | 'COMMENT'
   | 'ERROR'
   | 'FUNCTION'
-  | 'VARIABLE'
+  | 'IDENTIFIER'
   | 'CHOOSE1'
   | 'CHOOSE2'
+  | '='
 
 export interface Token<T extends TokenType = TokenType> {
   type: T;
