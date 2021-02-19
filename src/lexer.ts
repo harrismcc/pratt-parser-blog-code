@@ -94,6 +94,10 @@ function getDefaultToken(
     return emitToken('NUMBER');
   }
 
+  if (stream.match(/SPAM/)) {
+    return emitToken('SPAM');
+  }
+
   if (stream.match(/True/)) {
     return emitToken('TRUE');
   }
@@ -129,6 +133,7 @@ export type TokenType =
   | '('
   | ')'
   | 'COMMENT'
+  | 'SPAM'
   | 'ERROR';
 
 export interface Token<T extends TokenType = TokenType> {

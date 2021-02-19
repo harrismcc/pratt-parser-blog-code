@@ -115,6 +115,9 @@ function getDefaultToken(stream, state) {
     if (stream.match(/-?[0-9]+(\.[0-9]+)?/)) {
         return emitToken('NUMBER');
     }
+    if (stream.match(/SPAM/)) {
+        return emitToken('SPAM');
+    }
     if (stream.match(/True/)) {
         return emitToken('TRUE');
     }
@@ -532,6 +535,8 @@ function MakeMode(_config, _modeOptions) {
                     return 'operator';
                 case 'COMMENT':
                     return 'comment';
+                case 'SPAM':
+                    return 'spam';
                 case 'ERROR':
                     return 'error';
                 default:
@@ -655,6 +660,7 @@ class Parser extends AbstractParser {
             NUMBER: new Parselet.NumberParselet(),
             TRUE: new Parselet.BooleanParselet(true),
             FALSE: new Parselet.BooleanParselet(false),
+            SPAM: new Parselet.SpamParslet(),
             '(': new Parselet.ParenParselet(),
         };
     }
@@ -679,14 +685,23 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
+exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.SpamParslet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
     parse(_parser, _tokens, token) {
+        if (token.text == "123") {
+            return {
+                type: 'Number',
+                value: parseFloat(token.text),
+                pos: position_1.token2pos(token),
+                isRuntime: true
+            };
+        }
         return {
             type: 'Number',
             value: parseFloat(token.text),
-            pos: position_1.token2pos(token)
+            pos: position_1.token2pos(token),
+            isRuntime: false
         };
     }
 }
@@ -704,6 +719,15 @@ class BooleanParselet {
     }
 }
 exports.BooleanParselet = BooleanParselet;
+class SpamParslet {
+    parse(_parser, _tokens, token) {
+        return {
+            type: 'Spam',
+            pos: position_1.token2pos(token)
+        };
+    }
+}
+exports.SpamParslet = SpamParslet;
 class ParenParselet {
     parse(parser, tokens, _token) {
         const exp = parser.parse(tokens, 0);
@@ -851,10 +875,16 @@ class CheckBinary {
         return errors;
     }
 }
+class CheckSpam {
+    check(node) {
+        return [];
+    }
+}
 const checkerMap = {
     'Number': new CheckNumber(),
     'Boolean': new CheckBoolean(),
-    'BinaryOperation': new CheckBinary()
+    'BinaryOperation': new CheckBinary(),
+    'Spam': new CheckSpam(),
 };
 
 });

@@ -6,17 +6,18 @@ export type NodeType =
   | 'VariableAssignment'
   | 'Number'
   | 'Boolean'
-  | 'String'
   | 'BinaryOperation'
   | 'Choose'
   | 'Identifier'
   | 'Function'
+  | 'Spam'
   | 'CalculatorReference';
 
 export type NumberNode = {
   type: 'Number';
   value: number;
   pos: Position;
+  isRuntime: boolean;
 };
 
 export type BooleanNode = {
@@ -33,4 +34,9 @@ export type BinaryOperationNode = {
   pos: Position;
 };
 
-export type Node = BooleanNode | NumberNode | BinaryOperationNode;
+export type SpamNode = {
+  type: 'Spam',
+  pos: Position
+}
+
+export type Node = BooleanNode | NumberNode | BinaryOperationNode | SpamNode;

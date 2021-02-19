@@ -7,7 +7,7 @@ export function typecheck(nodes: AST.Node[]): TypeError[] {
 }
 
 function typecheckNode(node: AST.Node): TypeError[] {
-  return checkerMap[node.type].check(node);
+  return checkerMap[node.type]!.check(node);
 }
 
 export class TypeError {
@@ -40,8 +40,16 @@ class CheckBinary implements TypeChecker {
   }
 }
 
+
+class CheckSpam implements TypeChecker {
+  check(node: AST.SpamNode): TypeError[] {
+    return [];
+  }
+}
+
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'Number' : new CheckNumber(),
   'Boolean' : new CheckBoolean(),
-  'BinaryOperation' : new CheckBinary()
+  'BinaryOperation' : new CheckBinary(),
+  'Spam' : new CheckSpam(),
 }

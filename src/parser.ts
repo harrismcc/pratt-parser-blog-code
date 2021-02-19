@@ -115,6 +115,7 @@ export class Parser extends AbstractParser {
       NUMBER: new Parselet.NumberParselet(),
       TRUE: new Parselet.BooleanParselet(true),
       FALSE: new Parselet.BooleanParselet(false),
+      SPAM: new Parselet.SpamParslet(),
       '(': new Parselet.ParenParselet(),
     };
   }

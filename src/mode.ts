@@ -12,6 +12,8 @@ type TokenType =
   | 'boolean'
   | 'comment'
   | 'string'
+  | 'quote'
+  | 'spam'
   | 'error'
 
 
@@ -50,6 +52,9 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
 
         case 'COMMENT':
           return 'comment';
+
+        case 'SPAM':
+          return 'spam';
 
         case 'ERROR':
           return 'error';

@@ -10,10 +10,20 @@ export interface InitialParselet {
 
 export class NumberParselet implements InitialParselet {
   parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
+    if (token.text == "123"){
+      return {
+        type: 'Number' as 'Number',
+        value: parseFloat(token.text),
+        pos: token2pos(token),
+        isRuntime : true
+      }
+    }
+
     return {
       type: 'Number' as 'Number',
       value: parseFloat(token.text),
-      pos: token2pos(token)
+      pos: token2pos(token),
+      isRuntime : false
     }
   }
 }
@@ -29,6 +39,15 @@ export class BooleanParselet implements InitialParselet {
   }
 }
 
+export class SpamParslet implements InitialParselet {
+  parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
+    return {
+      type: 'Spam' as 'Spam',
+      pos: token2pos(token)
+    }
+  }
+}
+
 export class ParenParselet implements InitialParselet {
   parse(parser: AbstractParser, tokens: TokenStream, _token: Token) {
     const exp = parser.parse(tokens, 0);
@@ -37,6 +56,8 @@ export class ParenParselet implements InitialParselet {
     return exp;
   }
 }
+
+
 
 export abstract class ConsequentParselet {
   constructor(
