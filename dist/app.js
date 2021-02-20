@@ -812,7 +812,9 @@ class ChooseParselet {
         const predicate = parser.parse(tokens, 0, varMap);
         const consequent = parser.parse(tokens, 0, varMap);
         tokens.expectToken('CHOOSE2');
+        console.log("After CHOOSE2");
         const otherwise = parser.parse(tokens, 0, varMap);
+        console.log("After otherwise statement");
         return {
             nodeType: 'Choose',
             case: { predicate: predicate, consequent: consequent },
@@ -833,7 +835,7 @@ class VariableAssignmentParselet {
         tokens.expectToken('=');
         const assignment = parser.parse(tokens, 0, varMap);
         // need to save the variable and its assignment in a lookup table
-        varMap[token.text] = assignment.nodeId;
+        varMap[token.text] = id;
         return {
             nodeType: 'VariableAssignment',
             name: token.text,
@@ -958,12 +960,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.typecheck = void 0;
 const equals_1 = require("./equals");
 function typecheck(nodes) {
-    const errors = nodes.map(n => typecheckNode(n));
+    const errors = nodes.map(n => typecheckNode(n, nodes));
     return [].concat(...errors);
 }
 exports.typecheck = typecheck;
-function typecheckNode(node) {
-    return checkerMap[node.nodeType].check(node);
+function typecheckNode(node, nodes) {
+    return checkerMap[node.nodeType].check(node, nodes);
 }
 class TypeError {
     constructor(message, position) {
@@ -983,9 +985,9 @@ class CheckBoolean {
     }
 }
 class CheckBinary {
-    check(node) {
+    check(node, nodes) {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
-        const errors = typecheckNode(node.left).concat(typecheckNode(node.right));
+        const errors = typecheckNode(node.left, nodes).concat(typecheckNode(node.right, nodes));
         // Check if same operand type (both numbers, both booleans)
         if (((_b = (_a = node.left) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != ((_d = (_c = node.right) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.valueType)) {
             errors.push(new TypeError("incompatible types for binary operator", node.pos));
@@ -1010,11 +1012,11 @@ class CheckBinary {
     }
 }
 class CheckFunction {
-    check(node) {
+    check(node, nodes) {
         var _a, _b, _c, _d, _e, _f;
         let errors = [];
         // First typecheck the argument
-        const argErrors = typecheckNode(node.arg);
+        const argErrors = typecheckNode(node.arg, nodes);
         errors = errors.concat(argErrors);
         const functionName = node.name;
         const argType = builtins[functionName].inputType;
@@ -1057,16 +1059,16 @@ class CheckFunction {
     }
 }
 class CheckChoose {
-    check(node) {
+    check(node, nodes) {
         var _a, _b;
         let errors = [];
         const predicate = node.case.predicate;
         const consequent = node.case.consequent;
         const otherwise = node.otherwise;
         // First typecheck the inner nodes
-        const predErrors = typecheckNode(predicate);
-        const consErrors = typecheckNode(consequent);
-        const otherErrors = typecheckNode(otherwise);
+        const predErrors = typecheckNode(predicate, nodes);
+        const consErrors = typecheckNode(consequent, nodes);
+        const otherErrors = typecheckNode(otherwise, nodes);
         errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
         // check return types are the same for both cases
         if (((_a = consequent === null || consequent === void 0 ? void 0 : consequent.outputType) === null || _a === void 0 ? void 0 : _a.valueType) != ((_b = otherwise === null || otherwise === void 0 ? void 0 : otherwise.outputType) === null || _b === void 0 ? void 0 : _b.valueType)) {
@@ -1103,13 +1105,41 @@ class CheckChoose {
     }
 }
 class CheckVariable {
-    check(node) {
-        return [];
+    check(node, nodes) {
+        let errors = [];
+        // First typecheck the assignment node
+        const assignmentErrors = typecheckNode(node.assignment, nodes);
+        errors = errors.concat(assignmentErrors);
+        // Set variable assignment node output type to the same as it's assignment
+        node.outputType.status = node.assignment.outputType.status;
+        node.outputType.valueType = node.assignment.outputType.valueType;
+        return errors;
     }
 }
 class CheckIdentifier {
-    check(node) {
-        return [];
+    check(node, nodes) {
+        let errors = [];
+        let valueNode = undefined;
+        // console.log("assignmentId: ", node.assignmentId)
+        // Traverse AST to find node variable is assigned to
+        for (let i = 0; i < nodes.length; i++) {
+            if (nodes[i].nodeId == node.assignmentId) {
+                if (nodes[i].nodeType == "VariableAssignment") {
+                    valueNode = nodes[i].assignment;
+                    break;
+                }
+            }
+        }
+        // If this assignmentId is not found in the AST, throw an error
+        if (valueNode == undefined) {
+            errors.push(new TypeError("This variable doesn't have a value", node.pos));
+        }
+        else {
+            // If we found the assignment node, set the output type of the identifier
+            node.outputType.status = valueNode.outputType.status;
+            node.outputType.valueType = valueNode.outputType.valueType;
+        }
+        return errors;
     }
 }
 // Dictionary of builtin functions that maps a function name to the type of its argument
@@ -1192,12 +1222,30 @@ class EqChoose {
         return false;
     }
 }
+// THIS IS LEFT AS AN EXERCISE TO THE READER
+class EqVariableAssignment {
+    eq(left, right) {
+        return false;
+    }
+}
+class EqIdentifier {
+    eq(left, right) {
+        if (left.name == right.name && left.assignmentId == right.assignmentId) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+}
 const equalsMap = {
     'Number': new EqNumber(),
     'Boolean': new EqBoolean(),
     'BinaryOperation': new EqBinary(),
     'Function': new EqFunction(),
-    'Choose': new EqChoose()
+    'Choose': new EqChoose(),
+    'VariableAssignment': new EqVariableAssignment(),
+    'Identifier': new EqIdentifier()
 };
 
 });

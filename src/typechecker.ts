@@ -3,12 +3,12 @@ import * as AST from './ast';
 import {equals} from './equals';
 
 export function typecheck(nodes: AST.Node[]): TypeError[] {
-  const errors = nodes.map(n => typecheckNode(n));
+  const errors = nodes.map(n => typecheckNode(n, nodes));
   return ([] as TypeError[]).concat(...errors);
 }
 
-function typecheckNode(node: AST.Node): TypeError[] {
-  return checkerMap[node.nodeType].check(node);
+function typecheckNode(node: AST.Node, nodes: AST.Node[]): TypeError[] {
+  return checkerMap[node.nodeType].check(node, nodes);
 }
 
 export class TypeError {
@@ -16,7 +16,7 @@ export class TypeError {
 }
 
 export interface TypeChecker {
-  check(node: AST.Node): TypeError[];
+  check(node: AST.Node, nodes: AST.Node[]): TypeError[];
 }
 
 class CheckNumber implements TypeChecker {
@@ -32,8 +32,8 @@ class CheckBoolean implements TypeChecker {
 }
 
 class CheckBinary implements TypeChecker {
-  check(node: AST.BinaryOperationNode): TypeError[] {
-    const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
+  check(node: AST.BinaryOperationNode, nodes: AST.Node[]): TypeError[] {
+    const errors: TypeError[] = typecheckNode(node.left, nodes).concat(typecheckNode(node.right, nodes));
     
     // Check if same operand type (both numbers, both booleans)
     if (node.left?.outputType?.valueType != node.right?.outputType?.valueType) {
@@ -61,11 +61,11 @@ class CheckBinary implements TypeChecker {
 }
 
 class CheckFunction implements TypeChecker {
-  check(node: AST.FunctionNode): TypeError[] {
+  check(node: AST.FunctionNode, nodes: AST.Node[]): TypeError[] {
     let errors: TypeError[] = [];
 
     // First typecheck the argument
-    const argErrors = typecheckNode(node.arg);
+    const argErrors = typecheckNode(node.arg, nodes);
     errors = errors.concat(argErrors);
 
     const functionName = node.name
@@ -117,7 +117,7 @@ class CheckFunction implements TypeChecker {
 }
 
 class CheckChoose implements TypeChecker {
-  check(node: AST.ChooseNode): TypeError[] {
+  check(node: AST.ChooseNode, nodes: AST.Node[]): TypeError[] {
     let errors: TypeError[] = [];
 
     const predicate = node.case.predicate;
@@ -125,9 +125,9 @@ class CheckChoose implements TypeChecker {
     const otherwise = node.otherwise;
 
     // First typecheck the inner nodes
-    const predErrors = typecheckNode(predicate);
-    const consErrors = typecheckNode(consequent);
-    const otherErrors = typecheckNode(otherwise);
+    const predErrors = typecheckNode(predicate, nodes);
+    const consErrors = typecheckNode(consequent, nodes);
+    const otherErrors = typecheckNode(otherwise, nodes);
     errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
 
     // check return types are the same for both cases
@@ -165,14 +165,48 @@ class CheckChoose implements TypeChecker {
 }
 
 class CheckVariable implements TypeChecker {
-  check(node: AST.VariableAssignmentNode): TypeError[] {
-    return [];
+  check(node: AST.VariableAssignmentNode, nodes: AST.Node[]): TypeError[] {
+    let errors: TypeError[] = [];
+    // First typecheck the assignment node
+    const assignmentErrors = typecheckNode(node.assignment, nodes);
+    errors = errors.concat(assignmentErrors);
+
+    // Set variable assignment node output type to the same as it's assignment
+    node.outputType.status = node.assignment.outputType.status;
+    node.outputType.valueType = node.assignment.outputType.valueType;
+
+    return errors;
   }
 }
 
 class CheckIdentifier implements TypeChecker {
-  check(node: AST.IdentifierNode): TypeError[] {
-    return [];
+  check(node: AST.IdentifierNode, nodes: AST.Node[]): TypeError[] {
+    let errors: TypeError[] = [];
+
+    let valueNode = undefined;
+
+    // console.log("assignmentId: ", node.assignmentId)
+
+    // Traverse AST to find node variable is assigned to
+    for (let i=0; i < nodes.length; i++) {
+      if (nodes[i].nodeId == node.assignmentId) {
+        if (nodes[i].nodeType == "VariableAssignment") {
+          valueNode = nodes[i].assignment;
+          break;
+        }
+      }
+    }
+
+    // If this assignmentId is not found in the AST, throw an error
+    if (valueNode == undefined) {
+      errors.push(new TypeError("This variable doesn't have a value", node.pos));
+    } else {
+      // If we found the assignment node, set the output type of the identifier
+      node.outputType.status = valueNode.outputType.status;
+      node.outputType.valueType = valueNode.outputType.valueType;
+    }
+
+    return errors;
   }
 }
 

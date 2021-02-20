@@ -127,10 +127,13 @@ export class ChooseParselet implements InitialParselet {
   parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}) {
     const position = token2pos(token);
     const id = pos2string(position);
+
     const predicate = parser.parse(tokens, 0, varMap);
     const consequent = parser.parse(tokens, 0, varMap);
     tokens.expectToken('CHOOSE2');
+    console.log("After CHOOSE2");
     const otherwise = parser.parse(tokens, 0, varMap);
+    console.log("After otherwise statement");
 
     return {
       nodeType: 'Choose' as 'Choose',
@@ -155,7 +158,7 @@ export class VariableAssignmentParselet implements InitialParselet {
     const assignment = parser.parse(tokens, 0, varMap);
 
     // need to save the variable and its assignment in a lookup table
-    varMap[token.text] = assignment.nodeId;
+    varMap[token.text] = id;
 
     return {
       nodeType: 'VariableAssignment' as 'VariableAssignment',
