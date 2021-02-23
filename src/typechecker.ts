@@ -19,7 +19,7 @@ export interface TypeChecker {
 }
 
 class CheckNumber implements TypeChecker {
-  check(node: AST.NumberNode): TypeError[] {
+  check(node: AST.ConstantNumberNode): TypeError[] {
     return [];
   }
 }

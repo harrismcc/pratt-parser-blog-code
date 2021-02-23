@@ -10,21 +10,11 @@ export interface InitialParselet {
 
 export class NumberParselet implements InitialParselet {
   parse(_parser: AbstractParser, _tokens: TokenStream, token: Token) {
-    if (token.text == "123"){
-      return {
-        type: 'Number' as 'Number',
-        value: parseFloat(token.text),
-        pos: token2pos(token),
-        isRuntime : true
-      }
-    }
-
     return {
       type: 'Number' as 'Number',
       value: parseFloat(token.text),
-      pos: token2pos(token),
-      isRuntime : false
-    }
+      pos: token2pos(token)
+    };
   }
 }
 

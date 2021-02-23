@@ -689,19 +689,10 @@ exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParse
 const position_1 = require("./position");
 class NumberParselet {
     parse(_parser, _tokens, token) {
-        if (token.text == "123") {
-            return {
-                type: 'Number',
-                value: parseFloat(token.text),
-                pos: position_1.token2pos(token),
-                isRuntime: true
-            };
-        }
         return {
             type: 'Number',
             value: parseFloat(token.text),
-            pos: position_1.token2pos(token),
-            isRuntime: false
+            pos: position_1.token2pos(token)
         };
     }
 }

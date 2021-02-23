@@ -11,6 +11,7 @@ export type NodeType =
   | 'Identifier'
   | 'Function'
   | 'Spam'
+  | 'ConstantNumberNode'
   | 'CalculatorReference';
 
 export type NumberNode = {
@@ -19,6 +20,8 @@ export type NumberNode = {
   pos: Position;
   isRuntime: boolean;
 };
+
+export type ConstantNumberNode = NumberNode;
 
 export type BooleanNode = {
   type: 'Boolean';
