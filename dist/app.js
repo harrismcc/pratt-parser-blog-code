@@ -872,6 +872,7 @@ class CheckSpam {
     }
 }
 const checkerMap = {
+    'ConstantNumber': new CheckNumber(),
     'Number': new CheckNumber(),
     'Boolean': new CheckBoolean(),
     'BinaryOperation': new CheckBinary(),

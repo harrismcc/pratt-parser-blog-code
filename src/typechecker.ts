@@ -48,6 +48,7 @@ class CheckSpam implements TypeChecker {
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
+  'ConstantNumber' : new CheckNumber(),
   'Number' : new CheckNumber(),
   'Boolean' : new CheckBoolean(),
   'BinaryOperation' : new CheckBinary(),

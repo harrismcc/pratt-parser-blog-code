@@ -14,7 +14,7 @@ export class NumberParselet implements InitialParselet {
       type: 'Number' as 'Number',
       value: parseFloat(token.text),
       pos: token2pos(token)
-    };
+    }
   }
 }
 
