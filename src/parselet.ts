@@ -108,13 +108,18 @@ export class FunctionParselet implements InitialParselet {
     const position = token2pos(token);
     const id = pos2string(position);
     tokens.expectToken('(');
-    const exp = parser.parse(tokens, 0, varMap);  // allow for one argument
+    const arg1 = parser.parse(tokens, 0, varMap);  // allow for one argument
+    let args = [arg1];
+    if (token.text == "ParseOrderedPair") {
+      const arg2 = parser.parse(tokens, 0, varMap);  // allow for second argument
+      args.push(arg2);
+    }
     tokens.expectToken(')');
 
     return {
       nodeType: 'Function' as 'Function',
       name: token.text,
-      arg: exp,
+      args: args,
       outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
                     valueType: undefined },
       pos: position,

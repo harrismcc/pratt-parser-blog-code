@@ -142,7 +142,7 @@ function getDefaultToken(stream, state) {
     if (stream.match(/OTHERWISE/)) {
         return emitToken('CHOOSE2');
     }
-    if (stream.match(/[A-Z]([a-z|A-Z])+/)) {
+    if (stream.match(/[A-Z]([a-z|A-Z])*/)) {
         return emitToken('FUNCTION');
     }
     // Identifiers
@@ -792,12 +792,17 @@ class FunctionParselet {
         const position = position_1.token2pos(token);
         const id = position_1.pos2string(position);
         tokens.expectToken('(');
-        const exp = parser.parse(tokens, 0, varMap); // allow for one argument
+        const arg1 = parser.parse(tokens, 0, varMap); // allow for one argument
+        let args = [arg1];
+        if (token.text == "ParseOrderedPair") {
+            const arg2 = parser.parse(tokens, 0, varMap); // allow for second argument
+            args.push(arg2);
+        }
         tokens.expectToken(')');
         return {
             nodeType: 'Function',
             name: token.text,
-            arg: exp,
+            args: args,
             outputType: { status: 'Maybe-Undefined', valueType: undefined },
             pos: position,
             nodeId: id
@@ -1013,18 +1018,26 @@ class CheckBinary {
 }
 class CheckFunction {
     check(node, nodes) {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         let errors = [];
         // First typecheck the argument
-        const argErrors = typecheckNode(node.arg, nodes);
-        errors = errors.concat(argErrors);
+        const arg1Errors = typecheckNode(node.args[0], nodes);
+        errors = errors.concat(arg1Errors);
+        if (node.args.length > 1) {
+            const arg2Errors = typecheckNode(node.args[1], nodes);
+            errors = errors.concat(arg2Errors);
+            if (((_b = (_a = node.args[0]) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != ((_d = (_c = node.args[1]) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.valueType)) {
+                errors.push(new TypeError("arguments must have same type", node.args[0].pos));
+            }
+        }
         const functionName = node.name;
         const argType = builtins[functionName].inputType;
         const returnType = builtins[functionName].resultType;
         // we found a builtin function
         if (argType) {
             // typecheck the argument
-            if (argType != 'any' && ((_b = (_a = node.arg) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != argType) {
+            // Assume both arguments are the same type (see error produced above)
+            if (argType != 'any' && ((_f = (_e = node.args[0]) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.valueType) != argType) {
                 errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
             }
         }
@@ -1035,15 +1048,25 @@ class CheckFunction {
         // only show error if in sink "node"
         if (functionName == 'Sink') {
             // if sink "node" takes in possibly undefined values, warn the author
-            if (((_d = (_c = node.arg) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined') {
-                errors.push(new TypeError("User facing content could be undefined.", node.arg.pos));
+            // a sink has one argument
+            if (((_h = (_g = node.args[0]) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.status) == 'Maybe-Undefined') {
+                errors.push(new TypeError("User facing content could be undefined.", node.args[0].pos));
             }
         }
         // If no type errors, update the output type of this node, based on the outputType of its argument
         if (errors.length == 0) {
-            if (((_f = (_e = node.arg) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.status) == 'Maybe-Undefined' || functionName == 'Input') {
+            if (((_k = (_j = node.args[0]) === null || _j === void 0 ? void 0 : _j.outputType) === null || _k === void 0 ? void 0 : _k.status) == 'Maybe-Undefined' || functionName == 'Input') {
                 // IsDefined should always output a definitely regardless of argument status
                 if (functionName != 'IsDefined') {
+                    node.outputType.status = 'Maybe-Undefined';
+                }
+                else {
+                    node.outputType.status = 'Definitely';
+                }
+            }
+            else if (node.args.length > 1) {
+                if (node.args[1].outputType.status == 'Maybe-Undefined') {
+                    // Note: IsDefined only has one argument, so we don't need to check for that here
                     node.outputType.status = 'Maybe-Undefined';
                 }
                 else {
@@ -1087,7 +1110,8 @@ class CheckChoose {
         // if the predicate is not a function, we cannot error check its type
         if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
             // if the function is isDefined we need to make sure the pred and cons are equal
-            if (predicate.name == 'IsDefined' && equals_1.equals(predicate.arg, consequent)) {
+            // IsDefined has only one argument
+            if (predicate.name == 'IsDefined' && equals_1.equals(predicate.args[0], consequent)) {
                 node.outputType.status = 'Definitely';
             }
             else {
@@ -1147,7 +1171,10 @@ const builtins = {
     "IsDefined": { inputType: 'any', resultType: 'boolean' },
     "Inverse": { inputType: 'number', resultType: 'number' },
     "Input": { inputType: 'number', resultType: 'number' },
-    "Sink": { inputType: 'any', resultType: 'any' }
+    "Sink": { inputType: 'any', resultType: 'any' },
+    "ParseOrderedPair": { inputType: 'number', resultType: 'pair' },
+    "X": { inputType: 'pair', resultType: 'number' },
+    "Y": { inputType: 'pair', resultType: 'number' }
 };
 const checkerMap = {
     'Number': new CheckNumber(),
@@ -1207,12 +1234,25 @@ class EqBinary {
 }
 class EqFunction {
     eq(left, right) {
-        if (left.name == right.name &&
-            equals(left.arg, right.arg)) {
-            return true;
+        if (left.args.length != right.args.length) {
+            return false;
         }
         else {
-            return false;
+            if (left.name == right.name &&
+                equals(left.args[0], right.args[0])) {
+                if (left.args.length > 1) {
+                    if (equals(left.args[1], right.args[1])) {
+                        return true;
+                    }
+                    else {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            else {
+                return false;
+            }
         }
     }
 }

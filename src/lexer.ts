@@ -125,7 +125,7 @@ function getDefaultToken(
     return emitToken('CHOOSE2');
   }
 
-  if (stream.match(/[A-Z]([a-z|A-Z])+/)) {
+  if (stream.match(/[A-Z]([a-z|A-Z])*/)) {
     return emitToken('FUNCTION');
   }
 

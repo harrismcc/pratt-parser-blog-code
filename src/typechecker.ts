@@ -65,8 +65,15 @@ class CheckFunction implements TypeChecker {
     let errors: TypeError[] = [];
 
     // First typecheck the argument
-    const argErrors = typecheckNode(node.arg, nodes);
-    errors = errors.concat(argErrors);
+    const arg1Errors = typecheckNode(node.args[0], nodes);
+    errors = errors.concat(arg1Errors);
+    if (node.args.length > 1) {
+      const arg2Errors = typecheckNode(node.args[1], nodes);
+      errors = errors.concat(arg2Errors);
+      if (node.args[0]?.outputType?.valueType != node.args[1]?.outputType?.valueType) {
+        errors.push(new TypeError("arguments must have same type", node.args[0].pos));
+      }
+    }
 
     const functionName = node.name
     const argType = builtins[functionName].inputType;
@@ -76,7 +83,8 @@ class CheckFunction implements TypeChecker {
     if (argType) {
 
       // typecheck the argument
-      if (argType != 'any' && node.arg?.outputType?.valueType != argType) {
+      // Assume both arguments are the same type (see error produced above)
+      if (argType != 'any' && node.args[0]?.outputType?.valueType != argType) {
         errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
       }
     }
@@ -89,19 +97,27 @@ class CheckFunction implements TypeChecker {
     // only show error if in sink "node"
     if (functionName == 'Sink') {
       // if sink "node" takes in possibly undefined values, warn the author
-      if (node.arg?.outputType?.status == 'Maybe-Undefined') {
-        errors.push(new TypeError("User facing content could be undefined.", node.arg.pos));
+      // a sink has one argument
+      if (node.args[0]?.outputType?.status == 'Maybe-Undefined') {
+        errors.push(new TypeError("User facing content could be undefined.", node.args[0].pos));
       }
     }
 
     // If no type errors, update the output type of this node, based on the outputType of its argument
     if (errors.length == 0) {
-      if (node.arg?.outputType?.status == 'Maybe-Undefined' || functionName == 'Input') {
+      if (node.args[0]?.outputType?.status == 'Maybe-Undefined' || functionName == 'Input') {
         // IsDefined should always output a definitely regardless of argument status
         if (functionName != 'IsDefined') {
           node.outputType.status = 'Maybe-Undefined';
         }
         else {
+          node.outputType.status = 'Definitely';
+        }
+      } else if (node.args.length > 1) {
+        if (node.args[1].outputType.status == 'Maybe-Undefined') {
+          // Note: IsDefined only has one argument, so we don't need to check for that here
+          node.outputType.status = 'Maybe-Undefined';
+        } else {
           node.outputType.status = 'Definitely';
         }
       } else {
@@ -148,7 +164,8 @@ class CheckChoose implements TypeChecker {
     // if the predicate is not a function, we cannot error check its type
     if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
       // if the function is isDefined we need to make sure the pred and cons are equal
-      if (predicate.name == 'IsDefined' && equals(predicate.arg, consequent)) {
+      // IsDefined has only one argument
+      if (predicate.name == 'IsDefined' && equals(predicate.args[0], consequent)) {
         node.outputType.status = 'Definitely';
       } else {
         // if the predicate doesn't error check (with isDefined), it can't be Definitely
@@ -215,7 +232,10 @@ const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.Val
   "IsDefined": {inputType: 'any', resultType: 'boolean'},
   "Inverse": {inputType: 'number', resultType: 'number'},
   "Input": {inputType: 'number', resultType: 'number'},
-  "Sink": {inputType: 'any', resultType: 'any'}
+  "Sink": {inputType: 'any', resultType: 'any'},
+  "ParseOrderedPair": {inputType: 'number', resultType: 'pair'},
+  "X": {inputType: 'pair', resultType: 'number'},
+  "Y": {inputType: 'pair', resultType: 'number'}
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {

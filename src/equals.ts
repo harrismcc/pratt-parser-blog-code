@@ -46,11 +46,22 @@ class EqBinary implements Equalizer {
 
 class EqFunction implements Equalizer {
     eq(left: AST.FunctionNode, right: AST.FunctionNode): Boolean {
-        if (left.name == right.name && 
-            equals(left.arg, right.arg) ) {
-            return true;
-        } else {
+        if (left.args.length != right.args.length) {
             return false;
+        } else {
+            if (left.name == right.name && 
+                equals(left.args[0], right.args[0])) {
+                    if (left.args.length > 1) {
+                        if (equals(left.args[1], right.args[1])) {
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    }
+                return true;
+            } else {
+                return false;
+            }
         }
     }
 }
