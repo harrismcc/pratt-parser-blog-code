@@ -33,8 +33,20 @@ class CheckBoolean implements TypeChecker {
 class CheckBinary implements TypeChecker {
   check(node: AST.BinaryOperationNode): TypeError[] {
     const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
+
+    if (isConstantOperation(node)){
+      errors.push(new TypeError("Is Constant Operation!", node.pos));
+    } else {
+      errors.push(new TypeError("Non constant operation", node.pos));
+    }
+
     if (node.left.type != node.right.type) {
-      errors.push(new TypeError("incompatible types for binary operator", node.pos));
+
+      //temporary fix to allow nested binary operations
+      if (node.left.type != "BinaryOperation" && node.right.type != "BinaryOperation"){
+
+        //errors.push(new TypeError("incompatible types for binary operator", node.pos));
+      }
     }
     return errors;
   }
@@ -53,4 +65,22 @@ const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'Boolean' : new CheckBoolean(),
   'BinaryOperation' : new CheckBinary(),
   'Spam' : new CheckSpam(),
+}
+
+
+
+function isConstantOperation(topNode : AST.Node) : boolean {
+
+  if (topNode.type == 'Number'){
+    return false;
+  }
+  else if (topNode.type == 'ConstantNumber'){
+    return true;
+  }
+  else if (topNode.type == 'BinaryOperation'){
+    return isConstantOperation(topNode.left) && isConstantOperation(topNode.right);
+  }
+  else {
+    throw('Incompatable Node type');
+  }
 }
