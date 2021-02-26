@@ -4,14 +4,15 @@ import {TokenStream} from './tokenstream';
 import {ParseError, token2pos} from './position';
 import * as AST from './ast';
 
-export function parse(text: string, varMap: {[key: string]: string}): {nodes: AST.Node[]; errors: ParseError[]} {
+export function parse(text: string, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}): 
+                      {nodes: AST.Node[]; errors: ParseError[]} {
   const nodes: AST.Node[] = [];
 
   const tokens = new TokenStream(text);
   const parser = new Parser();
   while (tokens.peek()) {
     try {
-      nodes.push(parser.parse(tokens, 0, varMap));
+      nodes.push(parser.parse(tokens, 0, varMap, registeredNodes));
     } catch (e) {
       return {
         nodes,
@@ -65,7 +66,7 @@ export abstract class AbstractParser {
     }
   }
 
-  parse(tokens: TokenStream, currentBindingPower: number, varMap: {[key: string]: string}): AST.Node {
+  parse(tokens: TokenStream, currentBindingPower: number, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}): AST.Node {
     const token = tokens.consume();
     if (!token) {
       throw new ParseError(
@@ -83,7 +84,7 @@ export abstract class AbstractParser {
       );
     }
 
-    let left = initialParselet.parse(this, tokens, token, varMap);
+    let left = initialParselet.parse(this, tokens, token, varMap, registeredNodes);
 
     while (true) {
       const next = tokens.peek();
@@ -102,7 +103,7 @@ export abstract class AbstractParser {
       }
 
       tokens.consume();
-      left = consequentParselet.parse(this, tokens, left, next, varMap);
+      left = consequentParselet.parse(this, tokens, left, next, varMap, registeredNodes);
     }
 
     return left;

@@ -20,9 +20,9 @@ document.body.appendChild(outputContainer);
 function updateOutput() {
     // adding a variable lookup table
     let varMap = {};
-    // let registeredNodes: {[key: string]: Node} = {};
+    let registeredNodes = {};
     /***** ITERATION: Remove mudErrors *****/
-    const ast = parser_1.parse(cm.getDoc().getValue(), varMap);
+    const ast = parser_1.parse(cm.getDoc().getValue(), varMap, registeredNodes);
     const mudErrors = mudChecker_1.mudCheck(ast.nodes);
     const typeErrors = typechecker_1.typecheck(ast.nodes);
     const allTypeErrors = mudErrors.concat(typeErrors);
@@ -34,6 +34,7 @@ function updateOutput() {
     }
     const tokens = lexer_1.getTokens(cm.getDoc().getValue());
     outputContainer.innerHTML = `\
+nodeMap: ${JSON.stringify(registeredNodes, null, 2)}
 mudErrors: ${JSON.stringify(mudErrors, null, 2)}
 typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}
@@ -615,13 +616,13 @@ exports.Parser = exports.AbstractParser = exports.parse = void 0;
 const Parselet = __importStar(require("./parselet"));
 const tokenstream_1 = require("./tokenstream");
 const position_1 = require("./position");
-function parse(text, varMap) {
+function parse(text, varMap, registeredNodes) {
     const nodes = [];
     const tokens = new tokenstream_1.TokenStream(text);
     const parser = new Parser();
     while (tokens.peek()) {
         try {
-            nodes.push(parser.parse(tokens, 0, varMap));
+            nodes.push(parser.parse(tokens, 0, varMap, registeredNodes));
         }
         catch (e) {
             return {
@@ -657,7 +658,7 @@ class AbstractParser {
             throw new position_1.ParseError(`Unexpected token type ${token.type}.`, position_1.token2pos(token));
         }
     }
-    parse(tokens, currentBindingPower, varMap) {
+    parse(tokens, currentBindingPower, varMap, registeredNodes) {
         const token = tokens.consume();
         if (!token) {
             throw new position_1.ParseError(`Unexpected end of tokens.`, position_1.token2pos(tokens.last()));
@@ -666,7 +667,7 @@ class AbstractParser {
         if (!initialParselet) {
             throw new position_1.ParseError(`Unexpected token type ${token.type}`, position_1.token2pos(token));
         }
-        let left = initialParselet.parse(this, tokens, token, varMap);
+        let left = initialParselet.parse(this, tokens, token, varMap, registeredNodes);
         while (true) {
             const next = tokens.peek();
             if (!next) {
@@ -680,7 +681,7 @@ class AbstractParser {
                 break;
             }
             tokens.consume();
-            left = consequentParselet.parse(this, tokens, left, next, varMap);
+            left = consequentParselet.parse(this, tokens, left, next, varMap, registeredNodes);
         }
         return left;
     }
@@ -722,10 +723,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.IdentifierParselet = exports.VariableAssignmentParselet = exports.ChooseParselet = exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
-    parse(_parser, _tokens, token, varMap) {
+    parse(_parser, _tokens, token, varMap, registeredNodes) {
         const position = position_1.token2pos(token);
         const id = position_1.pos2string(position);
-        return {
+        // add node to the map
+        let newNode = {
             nodeType: 'Number',
             value: parseFloat(token.text),
             outputType: { status: 'Definitely',
@@ -733,6 +735,8 @@ class NumberParselet {
             pos: position,
             nodeId: id
         };
+        registeredNodes[id] = newNode;
+        return newNode;
     }
 }
 exports.NumberParselet = NumberParselet;
@@ -740,10 +744,10 @@ class BooleanParselet {
     constructor(value) {
         this.value = value;
     }
-    parse(_parser, _tokens, token, varMap) {
+    parse(_parser, _tokens, token, varMap, registeredNodes) {
         const position = position_1.token2pos(token);
         const id = position_1.pos2string(position);
-        return {
+        let newNode = {
             nodeType: 'Boolean',
             value: this.value,
             outputType: { status: 'Definitely',
@@ -751,12 +755,14 @@ class BooleanParselet {
             pos: position,
             nodeId: id
         };
+        registeredNodes[id] = newNode;
+        return newNode;
     }
 }
 exports.BooleanParselet = BooleanParselet;
 class ParenParselet {
-    parse(parser, tokens, _token, varMap) {
-        const exp = parser.parse(tokens, 0, varMap);
+    parse(parser, tokens, _token, varMap, registeredNodes) {
+        const exp = parser.parse(tokens, 0, varMap, registeredNodes);
         tokens.expectToken(')');
         return exp;
     }
@@ -774,12 +780,12 @@ class BinaryOperatorParselet extends ConsequentParselet {
         super(tokenType, associativity);
         this.tokenType = tokenType;
     }
-    parse(parser, tokens, left, token, varMap) {
+    parse(parser, tokens, left, token, varMap, registeredNodes) {
         const bindingPower = parser.bindingPower(token);
-        const right = parser.parse(tokens, this.associativity == 'left' ? bindingPower : bindingPower - 1, varMap);
+        const right = parser.parse(tokens, this.associativity == 'left' ? bindingPower : bindingPower - 1, varMap, registeredNodes);
         const position = position_1.join(left.pos, position_1.token2pos(tokens.last()));
         const id = position_1.pos2string(position);
-        return {
+        let newNode = {
             nodeType: 'BinaryOperation',
             operator: this.tokenType,
             left,
@@ -788,24 +794,26 @@ class BinaryOperatorParselet extends ConsequentParselet {
             pos: position,
             nodeId: id
         };
+        registeredNodes[id] = newNode;
+        return newNode;
     }
 }
 exports.BinaryOperatorParselet = BinaryOperatorParselet;
 // Parse function calls
 // Limitation: Functions are allowed to take exactly one argument
 class FunctionParselet {
-    parse(parser, tokens, token, varMap) {
+    parse(parser, tokens, token, varMap, registeredNodes) {
         const position = position_1.token2pos(token);
         const id = position_1.pos2string(position);
         tokens.expectToken('(');
-        const arg1 = parser.parse(tokens, 0, varMap); // allow for one argument
+        const arg1 = parser.parse(tokens, 0, varMap, registeredNodes); // allow for one argument
         let args = [arg1];
         if (token.text == "ParseOrderedPair") {
-            const arg2 = parser.parse(tokens, 0, varMap); // allow for second argument
+            const arg2 = parser.parse(tokens, 0, varMap, registeredNodes); // allow for second argument
             args.push(arg2);
         }
         tokens.expectToken(')');
-        return {
+        let newNode = {
             nodeType: 'Function',
             name: token.text,
             args: args,
@@ -814,18 +822,20 @@ class FunctionParselet {
             pos: position,
             nodeId: id
         };
+        registeredNodes[id] = newNode;
+        return newNode;
     }
 }
 exports.FunctionParselet = FunctionParselet;
 class ChooseParselet {
-    parse(parser, tokens, token, varMap) {
+    parse(parser, tokens, token, varMap, registeredNodes) {
         const position = position_1.token2pos(token);
         const id = position_1.pos2string(position);
-        const predicate = parser.parse(tokens, 0, varMap);
-        const consequent = parser.parse(tokens, 0, varMap);
+        const predicate = parser.parse(tokens, 0, varMap, registeredNodes);
+        const consequent = parser.parse(tokens, 0, varMap, registeredNodes);
         tokens.expectToken('CHOOSE2');
-        const otherwise = parser.parse(tokens, 0, varMap);
-        return {
+        const otherwise = parser.parse(tokens, 0, varMap, registeredNodes);
+        let newNode = {
             nodeType: 'Choose',
             case: { predicate: predicate, consequent: consequent },
             otherwise: otherwise,
@@ -834,20 +844,22 @@ class ChooseParselet {
             pos: position,
             nodeId: id
         };
+        registeredNodes[id] = newNode;
+        return newNode;
     }
 }
 exports.ChooseParselet = ChooseParselet;
 class VariableAssignmentParselet {
-    parse(parser, tokens, token, varMap) {
+    parse(parser, tokens, token, varMap, registeredNodes) {
         var _a;
         const position = position_1.token2pos(token);
         const id = position_1.pos2string(position);
         // deal with variable assignment
         tokens.expectToken('=');
-        const assignment = parser.parse(tokens, 0, varMap);
+        const assignment = parser.parse(tokens, 0, varMap, registeredNodes);
         // need to save the variable and its assignment in a lookup table
         varMap[token.text] = id;
-        return {
+        let newNode = {
             nodeType: 'VariableAssignment',
             name: token.text,
             assignment: assignment,
@@ -856,21 +868,23 @@ class VariableAssignmentParselet {
             pos: position,
             nodeId: id
         };
+        registeredNodes[id] = newNode;
+        return newNode;
     }
 }
 exports.VariableAssignmentParselet = VariableAssignmentParselet;
 class IdentifierParselet {
-    parse(parser, tokens, token, varMap) {
+    parse(parser, tokens, token, varMap, registeredNodes) {
         const position = position_1.token2pos(token);
         const id = position_1.pos2string(position);
         // need to look up known variables in a lookup table (map?)
         const assignmentId = varMap[token.text];
         if (!assignmentId) {
             const varParselet = new VariableAssignmentParselet();
-            return varParselet.parse(parser, tokens, token, varMap);
+            return varParselet.parse(parser, tokens, token, varMap, registeredNodes);
         }
         else {
-            return {
+            let newNode = {
                 nodeType: 'Identifier',
                 name: token.text,
                 assignmentId: assignmentId,
@@ -879,6 +893,8 @@ class IdentifierParselet {
                 pos: position,
                 nodeId: id
             };
+            registeredNodes[id] = newNode;
+            return newNode;
         }
     }
 }
@@ -971,13 +987,13 @@ ___scope___.file("src/typechecker.js", function(exports, require, module, __file
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.typecheck = void 0;
 /***** ITERATION: change all outputType.valueType to simply outputType *****/
-function typecheck(nodes) {
-    const errors = nodes.map(n => typecheckNode(n, nodes));
+function typecheck(nodes, registeredNodes) {
+    const errors = nodes.map(n => typecheckNode(n, registeredNodes));
     return [].concat(...errors);
 }
 exports.typecheck = typecheck;
-function typecheckNode(node, nodes) {
-    return checkerMap[node.nodeType].check(node, nodes);
+function typecheckNode(node, registeredNodes) {
+    return checkerMap[node.nodeType].check(node, registeredNodes);
 }
 class TypeError {
     constructor(message, position) {
@@ -997,9 +1013,9 @@ class CheckBoolean {
     }
 }
 class CheckBinary {
-    check(node, nodes) {
+    check(node, registeredNodes) {
         var _a, _b, _c, _d, _e, _f, _g, _h;
-        const errors = typecheckNode(node.left, nodes).concat(typecheckNode(node.right, nodes));
+        const errors = typecheckNode(node.left, registeredNodes).concat(typecheckNode(node.right, registeredNodes));
         // Check if same operand type (both numbers, both booleans)
         if (((_b = (_a = node.left) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != ((_d = (_c = node.right) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.valueType)) {
             errors.push(new TypeError("incompatible types for binary operator", node.pos));
@@ -1015,14 +1031,14 @@ class CheckBinary {
     }
 }
 class CheckFunction {
-    check(node, nodes) {
+    check(node, registeredNodes) {
         var _a, _b, _c, _d, _e, _f;
         let errors = [];
         // First typecheck the argument
-        const arg1Errors = typecheckNode(node.args[0], nodes);
+        const arg1Errors = typecheckNode(node.args[0], registeredNodes);
         errors = errors.concat(arg1Errors);
         if (node.args.length > 1) {
-            const arg2Errors = typecheckNode(node.args[1], nodes);
+            const arg2Errors = typecheckNode(node.args[1], registeredNodes);
             errors = errors.concat(arg2Errors);
             if (((_b = (_a = node.args[0]) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != ((_d = (_c = node.args[1]) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.valueType)) {
                 errors.push(new TypeError("arguments must have same type", node.args[0].pos));
@@ -1046,16 +1062,16 @@ class CheckFunction {
     }
 }
 class CheckChoose {
-    check(node, nodes) {
+    check(node, registeredNodes) {
         var _a, _b;
         let errors = [];
         const predicate = node.case.predicate;
         const consequent = node.case.consequent;
         const otherwise = node.otherwise;
         // First typecheck the inner nodes
-        const predErrors = typecheckNode(predicate, nodes);
-        const consErrors = typecheckNode(consequent, nodes);
-        const otherErrors = typecheckNode(otherwise, nodes);
+        const predErrors = typecheckNode(predicate, registeredNodes);
+        const consErrors = typecheckNode(consequent, registeredNodes);
+        const otherErrors = typecheckNode(otherwise, registeredNodes);
         errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
         // check return types are the same for both cases
         if (((_a = consequent === null || consequent === void 0 ? void 0 : consequent.outputType) === null || _a === void 0 ? void 0 : _a.valueType) != ((_b = otherwise === null || otherwise === void 0 ? void 0 : otherwise.outputType) === null || _b === void 0 ? void 0 : _b.valueType)) {
@@ -1070,27 +1086,28 @@ class CheckChoose {
     }
 }
 class CheckVariable {
-    check(node, nodes) {
+    check(node, registeredNodes) {
         let errors = [];
         // First typecheck the assignment node
-        const assignmentErrors = typecheckNode(node.assignment, nodes);
+        const assignmentErrors = typecheckNode(node.assignment, registeredNodes);
         errors = errors.concat(assignmentErrors);
         return errors;
     }
 }
 class CheckIdentifier {
-    check(node, nodes) {
+    check(node, registeredNodes) {
         let errors = [];
-        let valueNode = undefined;
-        // Traverse AST to find node variable is assigned to
-        for (let i = 0; i < nodes.length; i++) {
-            if (nodes[i].nodeId == node.assignmentId) {
-                if (nodes[i].nodeType == "VariableAssignment") {
-                    valueNode = nodes[i].assignment;
-                    break;
-                }
-            }
-        }
+        let valueNode = registeredNodes[node.assignmentId].assignment;
+        //let valueNode = undefined;
+        //Traverse AST to find node variable is assigned to
+        // for (let i=0; i < nodes.length; i++) {
+        //   if (nodes[i].nodeId == node.assignmentId) {
+        //     if (nodes[i].nodeType == "VariableAssignment") {
+        //       valueNode = nodes[i].assignment;
+        //       break;
+        //     }
+        //   }
+        // }
         // If this assignmentId is not found in the AST, throw an error
         if (valueNode == undefined) {
             errors.push(new TypeError("This variable doesn't have a value", node.pos));
@@ -1117,62 +1134,6 @@ const checkerMap = {
     'VariableAssignment': new CheckVariable(),
     'Identifier': new CheckIdentifier()
 };
-/********** MOVE TO CmfChecker **********/
-/* function checkDependencies(pred: AST.Node, cons: AST.Node, nodes: AST.Node[]): boolean {
-  const depends = cons.outputType.dependsOn;
-  // Our only way to error check is with the IsDefined function
-  // IsDefined can only take one input
-  // If our consequent node depends on more than one other node, then we can't error check both
-  if (depends.length > 1) {
-    return false;
-  } else if (equals(pred, findNode(nodes, depends[0]))) {
-    return true;
-  } else {
-    return false;
-  }
-}
-
-function findNode(nodes: AST.Node[], nodeId: string): AST.Node {
-  for (let i = 0; i < nodes.length; i++) {
-    findNode2(nodes[i], nodeId);
-  }
-}
-
-function findNode2(node: AST.Node, nodeId: string): AST.Node {
-  if (node.nodeType == "Number" || node.nodeType == "Boolean") {
-    if (nodeId = node.nodeId) {
-      return node;
-    } else {
-      return undefined;
-    }
-  } else if (node.nodeType == "BinaryOperation") {
-    const left = findNode2(node.left, nodeId);
-    const right = findNode2(node.right, nodeId);
-    if (left) {
-      return left;
-    } else {
-      return right
-    }
-  } else if (node.nodeType == "Function") {
-    const arg1 = findNode2(node.args[0], nodeId);
-    if (node.args.length == 1) {
-      return arg1;
-    } else {
-      const arg2 = findNode2(node.args[1], nodeId);
-      if (arg1) {
-        return arg1;
-      } else {
-        return arg2;
-      }
-    }
-  } else if (node.nodeType == "Choose") {
-    const pred =
-  } else if (node.nodeType == "Identifier") {
-
-  } else if (node.nodeType == "VariableAssignment") {
-
-  }
-} */ 
 
 });
 ___scope___.file("src/mudChecker.js", function(exports, require, module, __filename, __dirname){

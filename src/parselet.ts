@@ -5,16 +5,17 @@ import { AbstractParser } from './parser';
 import {ParseError, token2pos, join, pos2string} from './position'
 
 export interface InitialParselet {
-  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}): AST.Node;
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}): AST.Node;
 }
 
 
 
 export class NumberParselet implements InitialParselet {
-  parse(_parser: AbstractParser, _tokens: TokenStream, token: Token, varMap: {[key: string]: string}) {
+  parse(_parser: AbstractParser, _tokens: TokenStream, token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}) {
     const position = token2pos(token);
     const id = pos2string(position);
-    return {
+    // add node to the map
+    let newNode = {
       nodeType: 'Number' as 'Number',
       value: parseFloat(token.text),
       outputType: { status: 'Definitely' as 'Definitely',
@@ -22,16 +23,18 @@ export class NumberParselet implements InitialParselet {
                     dependsOn: [] },
       pos: position,
       nodeId: id
-    }
+    };
+    registeredNodes[id] = newNode;
+    return newNode;
   }
 }
 
 export class BooleanParselet implements InitialParselet {
   constructor(private value: boolean) {}
-  parse(_parser: AbstractParser, _tokens: TokenStream, token: Token, varMap: {[key: string]: string}) {
+  parse(_parser: AbstractParser, _tokens: TokenStream, token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}) {
     const position = token2pos(token);
     const id = pos2string(position);
-    return {
+    let newNode = {
       nodeType: 'Boolean' as 'Boolean',
       value: this.value,
       outputType: { status: 'Definitely' as 'Definitely',
@@ -39,13 +42,15 @@ export class BooleanParselet implements InitialParselet {
                     dependsOn: [] },
       pos: position,
       nodeId: id
-    }
+    };
+    registeredNodes[id] = newNode;
+    return newNode;
   }
 }
 
 export class ParenParselet implements InitialParselet {
-  parse(parser: AbstractParser, tokens: TokenStream, _token: Token, varMap: {[key: string]: string}) {
-    const exp = parser.parse(tokens, 0, varMap);
+  parse(parser: AbstractParser, tokens: TokenStream, _token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}) {
+    const exp = parser.parse(tokens, 0, varMap, registeredNodes);
     tokens.expectToken(')');
 
     return exp;
@@ -62,7 +67,8 @@ export abstract class ConsequentParselet {
     tokens: TokenStream,
     left: AST.Node,
     token: Token,
-    varMap: {[key: string]: string}
+    varMap: {[key: string]: string},
+    registeredNodes: {[key: string]: AST.Node}
   ): AST.Node;
 }
 
@@ -79,18 +85,20 @@ export class BinaryOperatorParselet extends ConsequentParselet {
     tokens: TokenStream,
     left: AST.Node,
     token: Token,
-    varMap: {[key: string]: string}
+    varMap: {[key: string]: string},
+    registeredNodes: {[key: string]: AST.Node}
   ): AST.Node {
     const bindingPower = parser.bindingPower(token);
 
     const right = parser.parse(
       tokens,
       this.associativity == 'left' ? bindingPower : bindingPower - 1,
-      varMap
+      varMap,
+      registeredNodes
     );
     const position = join(left.pos, token2pos(tokens.last()));
     const id = pos2string(position);
-    return {
+    let newNode = {
       nodeType: 'BinaryOperation' as 'BinaryOperation',
       operator: this.tokenType,
       left,
@@ -98,7 +106,9 @@ export class BinaryOperatorParselet extends ConsequentParselet {
       outputType: undefined,
       pos: position,
       nodeId: id
-    }
+    };
+    registeredNodes[id] = newNode;
+    return newNode;
   }
 }
 
@@ -106,19 +116,18 @@ export class BinaryOperatorParselet extends ConsequentParselet {
 // Limitation: Functions are allowed to take exactly one argument
 export class FunctionParselet implements InitialParselet {
   
-  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}) {
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}) {
     const position = token2pos(token);
     const id = pos2string(position);
     tokens.expectToken('(');
-    const arg1 = parser.parse(tokens, 0, varMap);  // allow for one argument
+    const arg1 = parser.parse(tokens, 0, varMap, registeredNodes);  // allow for one argument
     let args = [arg1];
     if (token.text == "ParseOrderedPair") {
-      const arg2 = parser.parse(tokens, 0, varMap);  // allow for second argument
+      const arg2 = parser.parse(tokens, 0, varMap, registeredNodes);  // allow for second argument
       args.push(arg2);
     }
     tokens.expectToken(')');
-
-    return {
+    let newNode = {
       nodeType: 'Function' as 'Function',
       name: token.text,
       args: args,
@@ -127,21 +136,23 @@ export class FunctionParselet implements InitialParselet {
                     dependsOn: [] },
       pos: position,
       nodeId: id
-    }
+    };
+    registeredNodes[id] = newNode;
+    return newNode;
   }
 }
 
 export class ChooseParselet implements InitialParselet {
-  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}) {
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}) {
     const position = token2pos(token);
     const id = pos2string(position);
 
-    const predicate = parser.parse(tokens, 0, varMap);
-    const consequent = parser.parse(tokens, 0, varMap);
+    const predicate = parser.parse(tokens, 0, varMap, registeredNodes);
+    const consequent = parser.parse(tokens, 0, varMap, registeredNodes);
     tokens.expectToken('CHOOSE2');
-    const otherwise = parser.parse(tokens, 0, varMap);
+    const otherwise = parser.parse(tokens, 0, varMap, registeredNodes);
 
-    return {
+    let newNode = {
       nodeType: 'Choose' as 'Choose',
       case: { predicate: predicate, consequent: consequent },
       otherwise: otherwise,
@@ -150,24 +161,25 @@ export class ChooseParselet implements InitialParselet {
                     dependsOn: [] },
       pos: position,
       nodeId: id
-    }
+    };
+    registeredNodes[id] = newNode;
+    return newNode;
   }
 }
 
 export class VariableAssignmentParselet implements InitialParselet {
-  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}) {
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}) {
 
     const position = token2pos(token);
     const id = pos2string(position);
     
     // deal with variable assignment
     tokens.expectToken('=');
-    const assignment = parser.parse(tokens, 0, varMap);
+    const assignment = parser.parse(tokens, 0, varMap, registeredNodes);
 
     // need to save the variable and its assignment in a lookup table
     varMap[token.text] = id;
-
-    return {
+    let newNode = {
       nodeType: 'VariableAssignment' as 'VariableAssignment',
       name: token.text,
       assignment: assignment,
@@ -176,12 +188,14 @@ export class VariableAssignmentParselet implements InitialParselet {
                     dependsOn: [] },
       pos: position,
       nodeId: id
-    }
+    };
+    registeredNodes[id] = newNode;
+    return newNode;
   }
 }
 
 export class IdentifierParselet implements InitialParselet {
-  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}) {
+  parse(parser: AbstractParser, tokens: TokenStream, token: Token, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}) {
     
     const position = token2pos(token);
     const id = pos2string(position);
@@ -191,10 +205,10 @@ export class IdentifierParselet implements InitialParselet {
 
     if (!assignmentId) {
       const varParselet = new VariableAssignmentParselet();
-      return varParselet.parse(parser, tokens, token, varMap);
+      return varParselet.parse(parser, tokens, token, varMap, registeredNodes);
     }
     else {
-      return {
+      let newNode = {
         nodeType: 'Identifier' as 'Identifier',
         name: token.text,
         assignmentId: assignmentId,
@@ -203,7 +217,9 @@ export class IdentifierParselet implements InitialParselet {
                       dependsOn: [] },
         pos: position,
         nodeId: id
-      }
+      };
+      registeredNodes[id] = newNode;
+      return newNode;
     }
   }
 }

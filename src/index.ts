@@ -3,6 +3,7 @@ import {create} from './editor';
 import {parse} from './parser';
 import {typecheck} from './typechecker';
 import {mudCheck} from './mudChecker';
+import * as AST from './ast';
 
 const cmContainer = document.createElement('div');
 cmContainer.className = 'cm-container';
@@ -17,10 +18,10 @@ function updateOutput() {
 
   // adding a variable lookup table
   let varMap: {[key: string]: string} = {};
-  // let registeredNodes: {[key: string]: Node} = {};
+  let registeredNodes: {[key: string]: AST.Node} = {};
 
   /***** ITERATION: Remove mudErrors *****/
-  const ast = parse(cm.getDoc().getValue(), varMap);
+  const ast = parse(cm.getDoc().getValue(), varMap, registeredNodes);
   const mudErrors = mudCheck(ast.nodes);
   const typeErrors = typecheck(ast.nodes);
   const allTypeErrors = mudErrors.concat(typeErrors);
@@ -33,6 +34,7 @@ function updateOutput() {
 
   const tokens = getTokens(cm.getDoc().getValue());
   outputContainer.innerHTML = `\
+nodeMap: ${JSON.stringify(registeredNodes, null, 2)}
 mudErrors: ${JSON.stringify(mudErrors, null, 2)}
 typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}
