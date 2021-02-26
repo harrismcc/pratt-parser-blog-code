@@ -9,6 +9,7 @@ const lexer_1 = require("./lexer");
 const editor_1 = require("./editor");
 const parser_1 = require("./parser");
 const typechecker_1 = require("./typechecker");
+const mudChecker_1 = require("./mudChecker");
 const cmContainer = document.createElement('div');
 cmContainer.className = 'cm-container';
 document.body.appendChild(cmContainer);
@@ -19,16 +20,21 @@ document.body.appendChild(outputContainer);
 function updateOutput() {
     // adding a variable lookup table
     let varMap = {};
+    // let registeredNodes: {[key: string]: Node} = {};
+    /***** ITERATION: Remove mudErrors *****/
     const ast = parser_1.parse(cm.getDoc().getValue(), varMap);
+    const mudErrors = mudChecker_1.mudCheck(ast.nodes);
     const typeErrors = typechecker_1.typecheck(ast.nodes);
+    const allTypeErrors = mudErrors.concat(typeErrors);
     if (ast.errors.length > 0) {
         cm.setOption('script-errors', ast.errors);
     }
     else {
-        cm.setOption('script-errors', typeErrors);
+        cm.setOption('script-errors', allTypeErrors);
     }
     const tokens = lexer_1.getTokens(cm.getDoc().getValue());
     outputContainer.innerHTML = `\
+mudErrors: ${JSON.stringify(mudErrors, null, 2)}
 typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}
 tokens: ${JSON.stringify(tokens, null, 2)}
@@ -146,8 +152,8 @@ function getDefaultToken(stream, state) {
         return emitToken('FUNCTION');
     }
     // Identifiers
-    // For now, the form of a valid identifier is: an alphabetic character,
-    // followed by one or more alphanumeric characters.
+    // For now, the form of a valid identifier is: a lower-case alphabetic character,
+    // followed by zero or more alpha characters.
     if (stream.match(/[a-z]([a-z|A-Z])*/)) {
         return emitToken('IDENTIFIER');
     }
@@ -723,7 +729,7 @@ class NumberParselet {
             nodeType: 'Number',
             value: parseFloat(token.text),
             outputType: { status: 'Definitely',
-                valueType: 'number' },
+                valueType: 'number', dependsOn: [] },
             pos: position,
             nodeId: id
         };
@@ -741,7 +747,7 @@ class BooleanParselet {
             nodeType: 'Boolean',
             value: this.value,
             outputType: { status: 'Definitely',
-                valueType: 'boolean' },
+                valueType: 'boolean', dependsOn: [] },
             pos: position,
             nodeId: id
         };
@@ -803,7 +809,8 @@ class FunctionParselet {
             nodeType: 'Function',
             name: token.text,
             args: args,
-            outputType: { status: 'Maybe-Undefined', valueType: undefined },
+            outputType: { status: 'Maybe-Undefined', valueType: undefined,
+                dependsOn: [] },
             pos: position,
             nodeId: id
         };
@@ -817,14 +824,13 @@ class ChooseParselet {
         const predicate = parser.parse(tokens, 0, varMap);
         const consequent = parser.parse(tokens, 0, varMap);
         tokens.expectToken('CHOOSE2');
-        console.log("After CHOOSE2");
         const otherwise = parser.parse(tokens, 0, varMap);
-        console.log("After otherwise statement");
         return {
             nodeType: 'Choose',
             case: { predicate: predicate, consequent: consequent },
             otherwise: otherwise,
-            outputType: { status: 'Maybe-Undefined', valueType: undefined },
+            outputType: { status: 'Maybe-Undefined', valueType: undefined,
+                dependsOn: [] },
             pos: position,
             nodeId: id
         };
@@ -846,7 +852,7 @@ class VariableAssignmentParselet {
             name: token.text,
             assignment: assignment,
             outputType: { status: "Maybe-Undefined",
-                valueType: (_a = assignment === null || assignment === void 0 ? void 0 : assignment.outputType) === null || _a === void 0 ? void 0 : _a.valueType },
+                valueType: (_a = assignment === null || assignment === void 0 ? void 0 : assignment.outputType) === null || _a === void 0 ? void 0 : _a.valueType, dependsOn: [] },
             pos: position,
             nodeId: id
         };
@@ -868,7 +874,8 @@ class IdentifierParselet {
                 nodeType: 'Identifier',
                 name: token.text,
                 assignmentId: assignmentId,
-                outputType: { status: "Maybe-Undefined", valueType: undefined },
+                outputType: { status: "Maybe-Undefined", valueType: undefined,
+                    dependsOn: [] },
                 pos: position,
                 nodeId: id
             };
@@ -902,9 +909,9 @@ function join(start, end) {
 }
 exports.join = join;
 function pos2string(pos) {
-    return pos.first_line.toString() +
-        pos.first_column.toString() +
-        pos.last_line.toString() +
+    return pos.first_line.toString() + "." +
+        pos.first_column.toString() + "." +
+        pos.last_line.toString() + "." +
         pos.last_column.toString();
 }
 exports.pos2string = pos2string;
@@ -963,7 +970,7 @@ ___scope___.file("src/typechecker.js", function(exports, require, module, __file
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.typecheck = void 0;
-const equals_1 = require("./equals");
+/***** ITERATION: change all outputType.valueType to simply outputType *****/
 function typecheck(nodes) {
     const errors = nodes.map(n => typecheckNode(n, nodes));
     return [].concat(...errors);
@@ -991,7 +998,7 @@ class CheckBoolean {
 }
 class CheckBinary {
     check(node, nodes) {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         const errors = typecheckNode(node.left, nodes).concat(typecheckNode(node.right, nodes));
         // Check if same operand type (both numbers, both booleans)
         if (((_b = (_a = node.left) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != ((_d = (_c = node.right) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.valueType)) {
@@ -1004,21 +1011,12 @@ class CheckBinary {
         else if (((_h = (_g = node.right) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.valueType) == 'number' && node.operator == "^") {
             errors.push(new TypeError("incompatible operation for number operands", node.pos));
         }
-        // If no type errors, update the output type of this node, based on the outputType of its inputs
-        if (errors.length == 0) {
-            if (((_k = (_j = node.right) === null || _j === void 0 ? void 0 : _j.outputType) === null || _k === void 0 ? void 0 : _k.status) == 'Maybe-Undefined' || ((_m = (_l = node.left) === null || _l === void 0 ? void 0 : _l.outputType) === null || _m === void 0 ? void 0 : _m.status) == 'Maybe-Undefined') {
-                node.outputType = { status: 'Maybe-Undefined', valueType: (_p = (_o = node.left) === null || _o === void 0 ? void 0 : _o.outputType) === null || _p === void 0 ? void 0 : _p.valueType };
-            }
-            else {
-                node.outputType = { status: 'Definitely', valueType: (_r = (_q = node.left) === null || _q === void 0 ? void 0 : _q.outputType) === null || _r === void 0 ? void 0 : _r.valueType };
-            }
-        }
         return errors;
     }
 }
 class CheckFunction {
     check(node, nodes) {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+        var _a, _b, _c, _d, _e, _f;
         let errors = [];
         // First typecheck the argument
         const arg1Errors = typecheckNode(node.args[0], nodes);
@@ -1032,7 +1030,6 @@ class CheckFunction {
         }
         const functionName = node.name;
         const argType = builtins[functionName].inputType;
-        const returnType = builtins[functionName].resultType;
         // we found a builtin function
         if (argType) {
             // typecheck the argument
@@ -1044,39 +1041,6 @@ class CheckFunction {
         // this is not a known, builtin function
         else {
             errors.push(new TypeError("unknown function", node.pos));
-        }
-        // only show error if in sink "node"
-        if (functionName == 'Sink') {
-            // if sink "node" takes in possibly undefined values, warn the author
-            // a sink has one argument
-            if (((_h = (_g = node.args[0]) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.status) == 'Maybe-Undefined') {
-                errors.push(new TypeError("User facing content could be undefined.", node.args[0].pos));
-            }
-        }
-        // If no type errors, update the output type of this node, based on the outputType of its argument
-        if (errors.length == 0) {
-            if (((_k = (_j = node.args[0]) === null || _j === void 0 ? void 0 : _j.outputType) === null || _k === void 0 ? void 0 : _k.status) == 'Maybe-Undefined' || functionName == 'Input') {
-                // IsDefined should always output a definitely regardless of argument status
-                if (functionName != 'IsDefined') {
-                    node.outputType.status = 'Maybe-Undefined';
-                }
-                else {
-                    node.outputType.status = 'Definitely';
-                }
-            }
-            else if (node.args.length > 1) {
-                if (node.args[1].outputType.status == 'Maybe-Undefined') {
-                    // Note: IsDefined only has one argument, so we don't need to check for that here
-                    node.outputType.status = 'Maybe-Undefined';
-                }
-                else {
-                    node.outputType.status = 'Definitely';
-                }
-            }
-            else {
-                node.outputType.status = 'Definitely';
-            }
-            node.outputType.valueType = returnType;
         }
         return errors;
     }
@@ -1098,32 +1062,9 @@ class CheckChoose {
             errors.push(new TypeError("Return types are not the same for both cases", consequent.pos));
             errors.push(new TypeError("Return types are not the same for both cases", otherwise.pos));
         }
-        else {
-            // if return types are the same, set the return type of the choose node
-            node.outputType.valueType = consequent.outputType.valueType;
-        }
         // check that the predicate returns a boolean
         if (predicate.outputType.valueType != 'boolean') {
             errors.push(new TypeError("Predicate must return a boolean", predicate.pos));
-        }
-        // propagate maybe-undefined type, or change to definitely
-        // if the predicate is not a function, we cannot error check its type
-        if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
-            // if the function is isDefined we need to make sure the pred and cons are equal
-            // IsDefined has only one argument
-            if (predicate.name == 'IsDefined' && equals_1.equals(predicate.args[0], consequent)) {
-                node.outputType.status = 'Definitely';
-            }
-            else {
-                // if the predicate doesn't error check (with isDefined), it can't be Definitely
-                node.outputType.status = 'Maybe-Undefined';
-            }
-        }
-        else if (otherwise.outputType.status == 'Maybe-Undefined') {
-            node.outputType.status = 'Maybe-Undefined';
-        }
-        else {
-            node.outputType.status = 'Definitely';
         }
         return errors;
     }
@@ -1134,9 +1075,6 @@ class CheckVariable {
         // First typecheck the assignment node
         const assignmentErrors = typecheckNode(node.assignment, nodes);
         errors = errors.concat(assignmentErrors);
-        // Set variable assignment node output type to the same as it's assignment
-        node.outputType.status = node.assignment.outputType.status;
-        node.outputType.valueType = node.assignment.outputType.valueType;
         return errors;
     }
 }
@@ -1144,7 +1082,6 @@ class CheckIdentifier {
     check(node, nodes) {
         let errors = [];
         let valueNode = undefined;
-        // console.log("assignmentId: ", node.assignmentId)
         // Traverse AST to find node variable is assigned to
         for (let i = 0; i < nodes.length; i++) {
             if (nodes[i].nodeId == node.assignmentId) {
@@ -1157,11 +1094,6 @@ class CheckIdentifier {
         // If this assignmentId is not found in the AST, throw an error
         if (valueNode == undefined) {
             errors.push(new TypeError("This variable doesn't have a value", node.pos));
-        }
-        else {
-            // If we found the assignment node, set the output type of the identifier
-            node.outputType.status = valueNode.outputType.status;
-            node.outputType.valueType = valueNode.outputType.valueType;
         }
         return errors;
     }
@@ -1185,6 +1117,312 @@ const checkerMap = {
     'VariableAssignment': new CheckVariable(),
     'Identifier': new CheckIdentifier()
 };
+/********** MOVE TO CmfChecker **********/
+/* function checkDependencies(pred: AST.Node, cons: AST.Node, nodes: AST.Node[]): boolean {
+  const depends = cons.outputType.dependsOn;
+  // Our only way to error check is with the IsDefined function
+  // IsDefined can only take one input
+  // If our consequent node depends on more than one other node, then we can't error check both
+  if (depends.length > 1) {
+    return false;
+  } else if (equals(pred, findNode(nodes, depends[0]))) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function findNode(nodes: AST.Node[], nodeId: string): AST.Node {
+  for (let i = 0; i < nodes.length; i++) {
+    findNode2(nodes[i], nodeId);
+  }
+}
+
+function findNode2(node: AST.Node, nodeId: string): AST.Node {
+  if (node.nodeType == "Number" || node.nodeType == "Boolean") {
+    if (nodeId = node.nodeId) {
+      return node;
+    } else {
+      return undefined;
+    }
+  } else if (node.nodeType == "BinaryOperation") {
+    const left = findNode2(node.left, nodeId);
+    const right = findNode2(node.right, nodeId);
+    if (left) {
+      return left;
+    } else {
+      return right
+    }
+  } else if (node.nodeType == "Function") {
+    const arg1 = findNode2(node.args[0], nodeId);
+    if (node.args.length == 1) {
+      return arg1;
+    } else {
+      const arg2 = findNode2(node.args[1], nodeId);
+      if (arg1) {
+        return arg1;
+      } else {
+        return arg2;
+      }
+    }
+  } else if (node.nodeType == "Choose") {
+    const pred =
+  } else if (node.nodeType == "Identifier") {
+
+  } else if (node.nodeType == "VariableAssignment") {
+
+  }
+} */ 
+
+});
+___scope___.file("src/mudChecker.js", function(exports, require, module, __filename, __dirname){
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TypeError = exports.mudCheck = void 0;
+const equals_1 = require("./equals");
+function mudCheck(nodes) {
+    const errors = nodes.map(n => mudCheckNode(n, nodes));
+    return [].concat(...errors);
+}
+exports.mudCheck = mudCheck;
+function mudCheckNode(node, nodes) {
+    return mudCheckerMap[node.nodeType].mudCheck(node, nodes);
+}
+class TypeError {
+    constructor(message, position) {
+        this.message = message;
+        this.position = position;
+    }
+}
+exports.TypeError = TypeError;
+class MudCheckNumber {
+    mudCheck(node) {
+        return [];
+    }
+}
+class MudCheckBoolean {
+    mudCheck(node) {
+        return [];
+    }
+}
+class MudCheckBinary {
+    mudCheck(node, nodes) {
+        var _a, _b, _c, _d, _e, _f, _g, _h;
+        const errors = mudCheckNode(node.left, nodes).concat(mudCheckNode(node.right, nodes));
+        // If no type errors, update the output type of this node, based on the outputType of its inputs
+        if (((_b = (_a = node.right) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.status) == 'Maybe-Undefined' || ((_d = (_c = node.left) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined') {
+            node.outputType = { status: 'Maybe-Undefined', valueType: (_f = (_e = node.left) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.valueType, dependsOn: [node.right.nodeId, node.left.nodeId] };
+        }
+        else {
+            node.outputType = { status: 'Definitely', valueType: (_h = (_g = node.left) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.valueType, dependsOn: [node.right.nodeId, node.left.nodeId] };
+        }
+        return errors;
+    }
+}
+class MudCheckFunction {
+    mudCheck(node, nodes) {
+        var _a, _b, _c, _d;
+        let errors = [];
+        // First typecheck the argument
+        const arg1Errors = mudCheckNode(node.args[0], nodes);
+        errors = errors.concat(arg1Errors);
+        if (node.args.length > 1) {
+            const arg2Errors = mudCheckNode(node.args[1], nodes);
+            errors = errors.concat(arg2Errors);
+        }
+        const functionName = node.name;
+        const argType = builtins[functionName].inputType;
+        const returnType = builtins[functionName].resultType;
+        // only show error if in sink "node"
+        if (functionName == 'Sink') {
+            // if sink "node" takes in possibly undefined values, warn the author
+            // a sink has one argument
+            if (((_b = (_a = node.args[0]) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.status) == 'Maybe-Undefined') {
+                errors.push(new TypeError("User facing content could be undefined.", node.args[0].pos));
+            }
+        }
+        // If no type errors, update the output type of this node, based on the outputType of its argument
+        if (((_d = (_c = node.args[0]) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined' || functionName == 'Input') {
+            // IsDefined should always output a definitely regardless of argument status
+            if (functionName != 'IsDefined') {
+                node.outputType.status = 'Maybe-Undefined';
+            }
+            else {
+                node.outputType.status = 'Definitely';
+            }
+        }
+        else if (node.args.length > 1) {
+            if (node.args[1].outputType.status == 'Maybe-Undefined') {
+                // Note: IsDefined only has one argument, so we don't need to check for that here
+                node.outputType.status = 'Maybe-Undefined';
+            }
+            else {
+                node.outputType.status = 'Definitely';
+            }
+        }
+        else {
+            node.outputType.status = 'Definitely';
+        }
+        node.outputType.valueType = returnType;
+        for (let i = 0; i < node.args.length; i++) {
+            node.outputType.dependsOn.push(node.args[i].nodeId);
+        }
+        return errors;
+    }
+}
+class MudCheckChoose {
+    mudCheck(node, nodes) {
+        let errors = [];
+        const predicate = node.case.predicate;
+        const consequent = node.case.consequent;
+        const otherwise = node.otherwise;
+        // First typecheck the inner nodes
+        const predErrors = mudCheckNode(predicate, nodes);
+        const consErrors = mudCheckNode(consequent, nodes);
+        const otherErrors = mudCheckNode(otherwise, nodes);
+        errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
+        node.outputType.valueType = consequent.outputType.valueType;
+        // propagate maybe-undefined type, or change to definitely
+        // if the predicate is not a function, we cannot error check its type
+        if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
+            // we can only errorr check with IsDefined function
+            // IsDefined has only one argument
+            if (predicate.name == 'IsDefined') {
+                // we need to make sure the pred and cons are equal
+                // OR make sure all the dependencies of the consequent are in the predicate
+                if (equals_1.equals(predicate.args[0], consequent) /*|| checkDependencies(predicate.args[0], consequent, nodes)*/) {
+                    node.outputType.status = 'Definitely';
+                }
+            }
+            else {
+                // if the predicate doesn't error check (with isDefined), it can't be Definitely
+                node.outputType.status = 'Maybe-Undefined';
+            }
+        }
+        else if (otherwise.outputType.status == 'Maybe-Undefined') {
+            node.outputType.status = 'Maybe-Undefined';
+        }
+        else {
+            node.outputType.status = 'Definitely';
+        }
+        return errors;
+    }
+}
+class MudCheckVariable {
+    mudCheck(node, nodes) {
+        let errors = [];
+        // First typecheck the assignment node
+        const assignmentErrors = mudCheckNode(node.assignment, nodes);
+        errors = errors.concat(assignmentErrors);
+        // Set variable assignment node output type to the same as it's assignment
+        node.outputType.status = node.assignment.outputType.status;
+        node.outputType.valueType = node.assignment.outputType.valueType;
+        node.outputType.dependsOn = [node.assignment.nodeId];
+        return errors;
+    }
+}
+class MudCheckIdentifier {
+    mudCheck(node, nodes) {
+        let errors = [];
+        let valueNode = undefined;
+        // Traverse AST to find node variable is assigned to
+        for (let i = 0; i < nodes.length; i++) {
+            if (nodes[i].nodeId == node.assignmentId) {
+                if (nodes[i].nodeType == "VariableAssignment") {
+                    valueNode = nodes[i].assignment;
+                    break;
+                }
+            }
+        }
+        // If this assignmentId is not found in the AST, throw an error
+        if (valueNode == undefined) {
+            errors.push(new TypeError("This variable doesn't have a value", node.pos));
+        }
+        else {
+            // If we found the assignment node, set the output type of the identifier
+            node.outputType.status = valueNode.outputType.status;
+            node.outputType.valueType = valueNode.outputType.valueType;
+            node.outputType.dependsOn = [node.assignmentId];
+        }
+        return errors;
+    }
+}
+// Dictionary of builtin functions that maps a function name to the type of its argument
+const builtins = {
+    "IsDefined": { inputType: 'any', resultType: 'boolean' },
+    "Inverse": { inputType: 'number', resultType: 'number' },
+    "Input": { inputType: 'number', resultType: 'number' },
+    "Sink": { inputType: 'any', resultType: 'any' },
+    "ParseOrderedPair": { inputType: 'number', resultType: 'pair' },
+    "X": { inputType: 'pair', resultType: 'number' },
+    "Y": { inputType: 'pair', resultType: 'number' }
+};
+const mudCheckerMap = {
+    'Number': new MudCheckNumber(),
+    'Boolean': new MudCheckBoolean(),
+    'BinaryOperation': new MudCheckBinary(),
+    'Function': new MudCheckFunction(),
+    'Choose': new MudCheckChoose(),
+    'VariableAssignment': new MudCheckVariable(),
+    'Identifier': new MudCheckIdentifier()
+};
+/********** MOVE TO CmfChecker **********/
+/* function checkDependencies(pred: AST.Node, cons: AST.Node, nodes: AST.Node[]): boolean {
+  const depends = cons.outputType.dependsOn;
+  // Our only way to error check is with the IsDefined function
+  // IsDefined can only take one input
+  // If our consequent node depends on more than one other node, then we can't error check both
+  if (depends.length > 1) {
+    return false;
+  } else if (equals(pred, findNode(nodes, depends[0]))) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function findNode(nodes: AST.Node[], nodeId: string): AST.Node {
+  for (let i = 0; i < nodes.length; i++) {
+    findNode2(nodes[i], nodeId);
+  }
+}
+
+function findNode2(node: AST.Node, nodeId: string): AST.Node {
+  if (node.nodeType == "Number" || node.nodeType == "Boolean") {
+    if (nodeId = node.nodeId) {
+      return node;
+    } else {
+      return undefined;
+    }
+  } else if (node.nodeType == "BinaryOperation") {
+    const left = findNode2(node.left, nodeId);
+    const right = findNode2(node.right, nodeId);
+    if (left) {
+      return left;
+    } else {
+      return right
+    }
+  } else if (node.nodeType == "Function") {
+    const arg1 = findNode2(node.args[0], nodeId);
+    if (node.args.length == 1) {
+      return arg1;
+    } else {
+      const arg2 = findNode2(node.args[1], nodeId);
+      if (arg1) {
+        return arg1;
+      } else {
+        return arg2;
+      }
+    }
+  } else if (node.nodeType == "Choose") {
+    const pred =
+  } else if (node.nodeType == "Identifier") {
+
+  } else if (node.nodeType == "VariableAssignment") {
+
+  }
+} */ 
 
 });
 ___scope___.file("src/equals.js", function(exports, require, module, __filename, __dirname){

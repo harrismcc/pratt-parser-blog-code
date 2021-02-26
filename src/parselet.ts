@@ -18,7 +18,8 @@ export class NumberParselet implements InitialParselet {
       nodeType: 'Number' as 'Number',
       value: parseFloat(token.text),
       outputType: { status: 'Definitely' as 'Definitely',
-                    valueType: 'number' as 'number' },
+                    valueType: 'number' as 'number',
+                    dependsOn: [] },
       pos: position,
       nodeId: id
     }
@@ -34,7 +35,8 @@ export class BooleanParselet implements InitialParselet {
       nodeType: 'Boolean' as 'Boolean',
       value: this.value,
       outputType: { status: 'Definitely' as 'Definitely',
-                    valueType: 'boolean' as 'boolean' },
+                    valueType: 'boolean' as 'boolean',
+                    dependsOn: [] },
       pos: position,
       nodeId: id
     }
@@ -121,7 +123,8 @@ export class FunctionParselet implements InitialParselet {
       name: token.text,
       args: args,
       outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                    valueType: undefined },
+                    valueType: undefined,
+                    dependsOn: [] },
       pos: position,
       nodeId: id
     }
@@ -136,16 +139,15 @@ export class ChooseParselet implements InitialParselet {
     const predicate = parser.parse(tokens, 0, varMap);
     const consequent = parser.parse(tokens, 0, varMap);
     tokens.expectToken('CHOOSE2');
-    console.log("After CHOOSE2");
     const otherwise = parser.parse(tokens, 0, varMap);
-    console.log("After otherwise statement");
 
     return {
       nodeType: 'Choose' as 'Choose',
       case: { predicate: predicate, consequent: consequent },
       otherwise: otherwise,
       outputType: { status: 'Maybe-Undefined' as 'Maybe-Undefined',
-                    valueType: undefined },
+                    valueType: undefined,
+                    dependsOn: [] },
       pos: position,
       nodeId: id
     }
@@ -170,7 +172,8 @@ export class VariableAssignmentParselet implements InitialParselet {
       name: token.text,
       assignment: assignment,
       outputType: { status: "Maybe-Undefined" as "Maybe-Undefined",
-                    valueType: assignment?.outputType?.valueType },
+                    valueType: assignment?.outputType?.valueType,
+                    dependsOn: [] },
       pos: position,
       nodeId: id
     }
@@ -196,7 +199,8 @@ export class IdentifierParselet implements InitialParselet {
         name: token.text,
         assignmentId: assignmentId,
         outputType: { status: "Maybe-Undefined" as "Maybe-Undefined",
-                      valueType: undefined },
+                      valueType: undefined,
+                      dependsOn: [] },
         pos: position,
         nodeId: id
       }

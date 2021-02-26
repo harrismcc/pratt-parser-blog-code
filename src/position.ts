@@ -26,9 +26,9 @@ export function join(start: Position, end: Position) {
 }
 
 export function pos2string(pos: Position): string {
-  return pos.first_line.toString() + 
-         pos.first_column.toString() + 
-         pos.last_line.toString() + 
+  return pos.first_line.toString() + "." +
+         pos.first_column.toString() + "." +
+         pos.last_line.toString() + "." +
          pos.last_column.toString();
 }
 

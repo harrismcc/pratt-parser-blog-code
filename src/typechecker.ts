@@ -2,6 +2,8 @@ import {Position} from './position';
 import * as AST from './ast';
 import {equals} from './equals';
 
+/***** ITERATION: change all outputType.valueType to simply outputType *****/
+
 export function typecheck(nodes: AST.Node[]): TypeError[] {
   const errors = nodes.map(n => typecheckNode(n, nodes));
   return ([] as TypeError[]).concat(...errors);
@@ -47,15 +49,6 @@ class CheckBinary implements TypeChecker {
       errors.push(new TypeError("incompatible operation for number operands", node.pos));
     }
 
-    // If no type errors, update the output type of this node, based on the outputType of its inputs
-    if (errors.length == 0) {
-      if (node.right?.outputType?.status == 'Maybe-Undefined' || node.left?.outputType?.status == 'Maybe-Undefined') {
-        node.outputType = {status: 'Maybe-Undefined', valueType: node.left?.outputType?.valueType};
-      } else {
-        node.outputType = {status: 'Definitely', valueType: node.left?.outputType?.valueType};
-      }
-    }
-
     return errors;
   }
 }
@@ -77,7 +70,6 @@ class CheckFunction implements TypeChecker {
 
     const functionName = node.name
     const argType = builtins[functionName].inputType;
-    const returnType = builtins[functionName].resultType;
 
     // we found a builtin function
     if (argType) {
@@ -92,40 +84,6 @@ class CheckFunction implements TypeChecker {
     // this is not a known, builtin function
     else {
       errors.push(new TypeError("unknown function", node.pos));
-    }
-
-    // only show error if in sink "node"
-    if (functionName == 'Sink') {
-      // if sink "node" takes in possibly undefined values, warn the author
-      // a sink has one argument
-      if (node.args[0]?.outputType?.status == 'Maybe-Undefined') {
-        errors.push(new TypeError("User facing content could be undefined.", node.args[0].pos));
-      }
-    }
-
-    // If no type errors, update the output type of this node, based on the outputType of its argument
-    if (errors.length == 0) {
-      if (node.args[0]?.outputType?.status == 'Maybe-Undefined' || functionName == 'Input') {
-        // IsDefined should always output a definitely regardless of argument status
-        if (functionName != 'IsDefined') {
-          node.outputType.status = 'Maybe-Undefined';
-        }
-        else {
-          node.outputType.status = 'Definitely';
-        }
-      } else if (node.args.length > 1) {
-        if (node.args[1].outputType.status == 'Maybe-Undefined') {
-          // Note: IsDefined only has one argument, so we don't need to check for that here
-          node.outputType.status = 'Maybe-Undefined';
-        } else {
-          node.outputType.status = 'Definitely';
-        }
-      } else {
-        node.outputType.status = 'Definitely';
-      }
-
-      node.outputType.valueType = returnType;
-
     }    
 
     return errors;
@@ -150,31 +108,11 @@ class CheckChoose implements TypeChecker {
     if (consequent?.outputType?.valueType != otherwise?.outputType?.valueType) {
       errors.push(new TypeError("Return types are not the same for both cases", consequent.pos));
       errors.push(new TypeError("Return types are not the same for both cases", otherwise.pos));
-    } else {
-      // if return types are the same, set the return type of the choose node
-      node.outputType.valueType = consequent.outputType.valueType;
     }
 
     // check that the predicate returns a boolean
     if (predicate.outputType.valueType != 'boolean') {
       errors.push(new TypeError("Predicate must return a boolean", predicate.pos));
-    }
-
-    // propagate maybe-undefined type, or change to definitely
-    // if the predicate is not a function, we cannot error check its type
-    if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
-      // if the function is isDefined we need to make sure the pred and cons are equal
-      // IsDefined has only one argument
-      if (predicate.name == 'IsDefined' && equals(predicate.args[0], consequent)) {
-        node.outputType.status = 'Definitely';
-      } else {
-        // if the predicate doesn't error check (with isDefined), it can't be Definitely
-        node.outputType.status = 'Maybe-Undefined';
-      }
-    } else if (otherwise.outputType.status == 'Maybe-Undefined') {
-      node.outputType.status = 'Maybe-Undefined';
-    } else {
-      node.outputType.status = 'Definitely';
     }
 
     return errors;
@@ -188,10 +126,6 @@ class CheckVariable implements TypeChecker {
     const assignmentErrors = typecheckNode(node.assignment, nodes);
     errors = errors.concat(assignmentErrors);
 
-    // Set variable assignment node output type to the same as it's assignment
-    node.outputType.status = node.assignment.outputType.status;
-    node.outputType.valueType = node.assignment.outputType.valueType;
-
     return errors;
   }
 }
@@ -201,8 +135,6 @@ class CheckIdentifier implements TypeChecker {
     let errors: TypeError[] = [];
 
     let valueNode = undefined;
-
-    // console.log("assignmentId: ", node.assignmentId)
 
     // Traverse AST to find node variable is assigned to
     for (let i=0; i < nodes.length; i++) {
@@ -217,10 +149,6 @@ class CheckIdentifier implements TypeChecker {
     // If this assignmentId is not found in the AST, throw an error
     if (valueNode == undefined) {
       errors.push(new TypeError("This variable doesn't have a value", node.pos));
-    } else {
-      // If we found the assignment node, set the output type of the identifier
-      node.outputType.status = valueNode.outputType.status;
-      node.outputType.valueType = valueNode.outputType.valueType;
     }
 
     return errors;
@@ -247,3 +175,60 @@ const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'VariableAssignment': new CheckVariable(),
   'Identifier': new CheckIdentifier()
 }
+
+/********** MOVE TO CmfChecker **********/
+/* function checkDependencies(pred: AST.Node, cons: AST.Node, nodes: AST.Node[]): boolean {
+  const depends = cons.outputType.dependsOn;
+  // Our only way to error check is with the IsDefined function
+  // IsDefined can only take one input
+  // If our consequent node depends on more than one other node, then we can't error check both
+  if (depends.length > 1) {
+    return false;
+  } else if (equals(pred, findNode(nodes, depends[0]))) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function findNode(nodes: AST.Node[], nodeId: string): AST.Node {
+  for (let i = 0; i < nodes.length; i++) {
+    findNode2(nodes[i], nodeId);
+  }
+}
+
+function findNode2(node: AST.Node, nodeId: string): AST.Node {
+  if (node.nodeType == "Number" || node.nodeType == "Boolean") {
+    if (nodeId = node.nodeId) {
+      return node;
+    } else {
+      return undefined;
+    }
+  } else if (node.nodeType == "BinaryOperation") {
+    const left = findNode2(node.left, nodeId);
+    const right = findNode2(node.right, nodeId);
+    if (left) {
+      return left;
+    } else {
+      return right
+    }
+  } else if (node.nodeType == "Function") {
+    const arg1 = findNode2(node.args[0], nodeId);
+    if (node.args.length == 1) {
+      return arg1;
+    } else {
+      const arg2 = findNode2(node.args[1], nodeId);
+      if (arg1) {
+        return arg1;
+      } else {
+        return arg2;
+      }
+    }
+  } else if (node.nodeType == "Choose") {
+    const pred = 
+  } else if (node.nodeType == "Identifier") {
+
+  } else if (node.nodeType == "VariableAssignment") {
+
+  }
+} */

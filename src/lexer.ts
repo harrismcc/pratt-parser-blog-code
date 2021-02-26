@@ -130,8 +130,8 @@ function getDefaultToken(
   }
 
   // Identifiers
-  // For now, the form of a valid identifier is: an alphabetic character,
-  // followed by one or more alphanumeric characters.
+  // For now, the form of a valid identifier is: a lower-case alphabetic character,
+  // followed by zero or more alpha characters.
   if (stream.match(/[a-z]([a-z|A-Z])*/)) {
     return emitToken('IDENTIFIER');
   }
