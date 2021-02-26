@@ -23,7 +23,7 @@ function updateOutput() {
   /***** ITERATION: Remove mudErrors *****/
   const ast = parse(cm.getDoc().getValue(), varMap, registeredNodes);
   const mudErrors = mudCheck(ast.nodes);
-  const typeErrors = typecheck(ast.nodes);
+  const typeErrors = typecheck(ast.nodes, registeredNodes);
   const allTypeErrors = mudErrors.concat(typeErrors);
 
   if (ast.errors.length > 0) {
