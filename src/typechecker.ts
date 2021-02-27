@@ -134,18 +134,8 @@ class CheckIdentifier implements TypeChecker {
   check(node: AST.IdentifierNode, registeredNodes: {[key: string]: AST.Node}): TypeError[] {
     let errors: TypeError[] = [];
 
+    // Maybe make assigmentId be valueId?
     let valueNode = registeredNodes[node.assignmentId].assignment;
-    //let valueNode = undefined;
-
-    //Traverse AST to find node variable is assigned to
-    // for (let i=0; i < nodes.length; i++) {
-    //   if (nodes[i].nodeId == node.assignmentId) {
-    //     if (nodes[i].nodeType == "VariableAssignment") {
-    //       valueNode = nodes[i].assignment;
-    //       break;
-    //     }
-    //   }
-    // }
 
     // If this assignmentId is not found in the AST, throw an error
     if (valueNode == undefined) {

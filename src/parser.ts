@@ -4,7 +4,10 @@ import {TokenStream} from './tokenstream';
 import {ParseError, token2pos} from './position';
 import * as AST from './ast';
 
-export function parse(text: string, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}): 
+export function parse(text: string,
+                      varMap: {[key: string]: string},
+                      registeredNodes: {[key: string]: AST.Node},
+                      dependsMap: {[key: string]: string[]}): 
                       {nodes: AST.Node[]; errors: ParseError[]} {
   const nodes: AST.Node[] = [];
 
@@ -12,7 +15,7 @@ export function parse(text: string, varMap: {[key: string]: string}, registeredN
   const parser = new Parser();
   while (tokens.peek()) {
     try {
-      nodes.push(parser.parse(tokens, 0, varMap, registeredNodes));
+      nodes.push(parser.parse(tokens, 0, varMap, registeredNodes, dependsMap));
     } catch (e) {
       return {
         nodes,
@@ -66,7 +69,11 @@ export abstract class AbstractParser {
     }
   }
 
-  parse(tokens: TokenStream, currentBindingPower: number, varMap: {[key: string]: string}, registeredNodes: {[key: string]: AST.Node}): AST.Node {
+  parse(tokens: TokenStream,
+        currentBindingPower: number,
+        varMap: {[key: string]: string},
+        registeredNodes: {[key: string]: AST.Node},
+        dependsMap: {[key: string]: string[]}): AST.Node {
     const token = tokens.consume();
     if (!token) {
       throw new ParseError(
@@ -84,7 +91,7 @@ export abstract class AbstractParser {
       );
     }
 
-    let left = initialParselet.parse(this, tokens, token, varMap, registeredNodes);
+    let left = initialParselet.parse(this, tokens, token, varMap, registeredNodes, dependsMap);
 
     while (true) {
       const next = tokens.peek();
@@ -103,7 +110,7 @@ export abstract class AbstractParser {
       }
 
       tokens.consume();
-      left = consequentParselet.parse(this, tokens, left, next, varMap, registeredNodes);
+      left = consequentParselet.parse(this, tokens, left, next, varMap, registeredNodes, dependsMap);
     }
 
     return left;

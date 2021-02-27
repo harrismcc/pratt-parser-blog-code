@@ -19,11 +19,15 @@ function updateOutput() {
   // adding a variable lookup table
   let varMap: {[key: string]: string} = {};
   let registeredNodes: {[key: string]: AST.Node} = {};
+  let dependsMap: {[key: string]: string[]} = {};
 
   /***** ITERATION: Remove mudErrors *****/
-  const ast = parse(cm.getDoc().getValue(), varMap, registeredNodes);
-  const mudErrors = mudCheck(ast.nodes);
+  const ast = parse(cm.getDoc().getValue(), varMap, registeredNodes, dependsMap);
+  console.log("after parse");
+  const mudErrors = mudCheck(ast.nodes, registeredNodes); // add dependsMap
+  console.log("after mud");
   const typeErrors = typecheck(ast.nodes, registeredNodes);
+  console.log("after type");
   const allTypeErrors = mudErrors.concat(typeErrors);
 
   if (ast.errors.length > 0) {
@@ -34,7 +38,6 @@ function updateOutput() {
 
   const tokens = getTokens(cm.getDoc().getValue());
   outputContainer.innerHTML = `\
-nodeMap: ${JSON.stringify(registeredNodes, null, 2)}
 mudErrors: ${JSON.stringify(mudErrors, null, 2)}
 typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}
