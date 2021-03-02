@@ -1196,7 +1196,8 @@ const builtins = {
     "Sink": { inputType: 'any', resultType: 'any' },
     "ParseOrderedPair": { inputType: 'number', resultType: 'pair' },
     "X": { inputType: 'pair', resultType: 'number' },
-    "Y": { inputType: 'pair', resultType: 'number' }
+    "Y": { inputType: 'pair', resultType: 'number' },
+    "RandomChoice": { inputType: 'number', resultType: 'number' }
 };
 const checkerMap = {
     'Number': new CheckNumber(),
@@ -1205,7 +1206,7 @@ const checkerMap = {
     'Function': new CheckFunction(),
     'Choose': new CheckChoose(),
     'VariableAssignment': new CheckVariable(),
-    'Identifier': new CheckIdentifier()
+    'Identifier': new CheckIdentifier(),
 };
 
 });

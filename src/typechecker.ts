@@ -154,7 +154,8 @@ const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.Val
   "Sink": {inputType: 'any', resultType: 'any'},
   "ParseOrderedPair": {inputType: 'number', resultType: 'pair'},
   "X": {inputType: 'pair', resultType: 'number'},
-  "Y": {inputType: 'pair', resultType: 'number'}
+  "Y": {inputType: 'pair', resultType: 'number'},
+  "RandomChoice" : {inputType : 'number', resultType: 'number'}
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
@@ -164,5 +165,6 @@ const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'Function' : new CheckFunction(),
   'Choose': new CheckChoose(),
   'VariableAssignment': new CheckVariable(),
-  'Identifier': new CheckIdentifier()
+  'Identifier': new CheckIdentifier(),
+  
 }

@@ -5,6 +5,7 @@ export type NodeType =
   | 'SinkAssignment'
   | 'VariableAssignment'
   | 'Number'
+  | 'ConstantNumber'
   | 'Boolean'
   | 'String'
   | 'BinaryOperation'
@@ -16,6 +17,14 @@ export type NodeType =
 
 export type NumberNode = {
   nodeType: 'Number';
+  value: number;
+  outputType: Definitely<ValueType>;
+  pos: Position;
+  nodeId: string;
+};
+
+export type ConstantNumberNode = {
+  nodeType: 'ConstantNumber';
   value: number;
   outputType: Definitely<ValueType>;
   pos: Position;
@@ -80,6 +89,7 @@ export type IdentifierNode = {
 export type Node = 
   | BooleanNode 
   | NumberNode 
+  | ConstantNumberNode
   | BinaryOperationNode 
   | FunctionNode 
   | ChooseNode 
