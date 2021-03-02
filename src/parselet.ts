@@ -25,7 +25,7 @@ export class NumberParselet implements InitialParselet {
     const id = pos2string(position);
     // add node to the map
     let newNode = {
-      nodeType: 'Number' as 'Number',
+      nodeType: 'ConstantNumber' as 'ConstantNumber',
       value: parseFloat(token.text),
       outputType: { status: 'Definitely' as 'Definitely',
                     valueType: 'number' as 'number' },

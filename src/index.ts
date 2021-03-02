@@ -3,6 +3,7 @@ import {create} from './editor';
 import {parse} from './parser';
 import {typecheck} from './typechecker';
 import {mudCheck} from './mudChecker';
+import {darCheck} from './darChecker';
 import * as AST from './ast';
 
 const cmContainer = document.createElement('div');
@@ -23,9 +24,10 @@ function updateOutput() {
 
   /***** ITERATION: Remove mudErrors *****/
   const ast = parse(cm.getDoc().getValue(), varMap, registeredNodes, dependsMap);
-  const mudErrors = mudCheck(ast.nodes, registeredNodes, dependsMap); // add dependsMap
+  //const mudErrors = mudCheck(ast.nodes, registeredNodes, dependsMap); // add dependsMap
+  const darErrors = darCheck(ast.nodes, registeredNodes);
   const typeErrors = typecheck(ast.nodes, registeredNodes);
-  const allTypeErrors = mudErrors.concat(typeErrors);
+  const allTypeErrors = darErrors.concat(typeErrors);
 
   if (ast.errors.length > 0) {
     cm.setOption('script-errors', ast.errors);
@@ -36,7 +38,7 @@ function updateOutput() {
   const tokens = getTokens(cm.getDoc().getValue());
   outputContainer.innerHTML = `\
 dependsMap: ${JSON.stringify(dependsMap, null, 2)}
-mudErrors: ${JSON.stringify(mudErrors, null, 2)}
+darErrors: ${JSON.stringify(darErrors, null, 2)}
 typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}
 tokens: ${JSON.stringify(tokens, null, 2)}

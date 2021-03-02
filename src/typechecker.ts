@@ -160,6 +160,7 @@ const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.Val
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {
   'Number' : new CheckNumber(),
+  'ConstantNumber' : new CheckNumber(),
   'Boolean' : new CheckBoolean(),
   'BinaryOperation' : new CheckBinary(),
   'Function' : new CheckFunction(),

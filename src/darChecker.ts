@@ -60,7 +60,7 @@ class DarCheckBinary implements DarChecker {
         if (this.isConstantOperation(node)){
         //errors.push(new TypeError("Is Constant Operation!", node.pos));
         } else {
-        errors.push(new TypeError("Non constant operation", node.pos));
+        //errors.push(new TypeError("Non constant operation", node.pos));
         }
         
         return errors;
@@ -71,6 +71,7 @@ class DarCheckBinary implements DarChecker {
 
 const darCheckerMap: Partial<{[K in AST.NodeType]: DarChecker}> = {
 'Number' : new DarCheckNumber(),
+'ConstantNumber' : new DarCheckNumber(),
 //'Boolean' : new CheckBoolean(),
 'BinaryOperation' : new DarCheckBinary(),
 //'Function' : new DarCheckFunction(),
