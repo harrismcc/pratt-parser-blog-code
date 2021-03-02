@@ -136,12 +136,13 @@ export class Parser extends AbstractParser {
       '-': new Parselet.BinaryOperatorParselet('-', 'left'),
       '*': new Parselet.BinaryOperatorParselet('*', 'left'),
       '/': new Parselet.BinaryOperatorParselet('/', 'left'),
-      '^': new Parselet.BinaryOperatorParselet('^', 'right'),
+      '|': new Parselet.BinaryOperatorParselet('|', 'right'),
+      '&': new Parselet.BinaryOperatorParselet('&', 'right')
     };
   }
 
   bindingClasses() {
-    const classes: TokenType[][] = [['+', '-'], ['*', '/'], ['^']];
+    const classes: TokenType[][] = [['+', '-'], ['*', '/'], ['|', '&']];
     return classes;
   }
 }

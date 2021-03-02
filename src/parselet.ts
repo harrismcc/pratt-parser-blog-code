@@ -14,7 +14,6 @@ export interface InitialParselet {
 }
 
 
-
 export class NumberParselet implements InitialParselet {
   parse(_parser: AbstractParser,
         _tokens: TokenStream,

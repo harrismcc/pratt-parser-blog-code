@@ -42,10 +42,10 @@ class CheckBinary implements TypeChecker {
       errors.push(new TypeError("incompatible types for binary operator", node.pos));
     }
     // Check if incorrect combination of operator and operands
-    else if (node.right?.outputType?.valueType == 'boolean' && node.operator != "^") {
+    else if (node.right?.outputType?.valueType == 'boolean' && (node.operator != "|" && node.operator != '&')) {
       errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
     }
-    else if (node.right?.outputType?.valueType == 'number' && node.operator == "^") {
+    else if (node.right?.outputType?.valueType == 'number' && (node.operator == "|" || node.operator == '&')) {
       errors.push(new TypeError("incompatible operation for number operands", node.pos));
     }
 

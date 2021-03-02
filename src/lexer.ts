@@ -78,8 +78,12 @@ function getDefaultToken(
     return emitToken('/');
   }
 
-  if (stream.match(/\^/)) {
-    return emitToken('^');
+  if (stream.match(/\|/)) {
+    return emitToken('|');
+  }
+
+  if (stream.match(/\&/)) {
+    return emitToken('&');
   }
 
   if (stream.match(/\(/)) {
@@ -146,9 +150,8 @@ export type BinaryOperationTokenType =
   | '-'
   | '*'
   | '/'
-  | '^'
-  // NOTE: we are considering the "^" operation to be a strictly boolean operation
-  //       it will represent an "or" operation
+  | '|' // this is an or
+  | '&' // this is an and
 
 export type TokenType =
   | BinaryOperationTokenType

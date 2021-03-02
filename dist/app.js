@@ -113,8 +113,11 @@ function getDefaultToken(stream, state) {
     if (stream.match(/\//)) {
         return emitToken('/');
     }
-    if (stream.match(/\^/)) {
-        return emitToken('^');
+    if (stream.match(/\|/)) {
+        return emitToken('|');
+    }
+    if (stream.match(/\&/)) {
+        return emitToken('&');
     }
     if (stream.match(/\(/)) {
         return emitToken('(');
@@ -559,7 +562,8 @@ function MakeMode(_config, _modeOptions) {
                 case '-':
                 case '*':
                 case '/':
-                case '^':
+                case '|':
+                case '&':
                 case '=':
                     return 'operator';
                 case 'COMMENT':
@@ -706,11 +710,12 @@ class Parser extends AbstractParser {
             '-': new Parselet.BinaryOperatorParselet('-', 'left'),
             '*': new Parselet.BinaryOperatorParselet('*', 'left'),
             '/': new Parselet.BinaryOperatorParselet('/', 'left'),
-            '^': new Parselet.BinaryOperatorParselet('^', 'right'),
+            '|': new Parselet.BinaryOperatorParselet('|', 'right'),
+            '&': new Parselet.BinaryOperatorParselet('&', 'right')
         };
     }
     bindingClasses() {
-        const classes = [['+', '-'], ['*', '/'], ['^']];
+        const classes = [['+', '-'], ['*', '/'], ['|', '&']];
         return classes;
     }
 }
@@ -1098,10 +1103,10 @@ class CheckBinary {
             errors.push(new TypeError("incompatible types for binary operator", node.pos));
         }
         // Check if incorrect combination of operator and operands
-        else if (((_f = (_e = node.right) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.valueType) == 'boolean' && node.operator != "^") {
+        else if (((_f = (_e = node.right) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.valueType) == 'boolean' && (node.operator != "|" && node.operator != '&')) {
             errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
         }
-        else if (((_h = (_g = node.right) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.valueType) == 'number' && node.operator == "^") {
+        else if (((_h = (_g = node.right) === null || _g === void 0 ? void 0 : _g.outputType) === null || _h === void 0 ? void 0 : _h.valueType) == 'number' && (node.operator == "|" || node.operator == '&')) {
             errors.push(new TypeError("incompatible operation for number operands", node.pos));
         }
         return errors;
