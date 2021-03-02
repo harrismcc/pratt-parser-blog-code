@@ -2,13 +2,15 @@ import {Position} from './position';
 import * as AST from './ast';
 import {equals} from './equals';
 
-export function typecheck(nodes: AST.Node[]): TypeError[] {
-  const errors = nodes.map(n => typecheckNode(n));
+/***** ITERATION: change all outputType.valueType to simply outputType *****/
+
+export function typecheck(nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+  const errors = nodes.map(n => typecheckNode(n, registeredNodes));
   return ([] as TypeError[]).concat(...errors);
 }
 
-function typecheckNode(node: AST.Node): TypeError[] {
-  return checkerMap[node.nodeType].check(node);
+function typecheckNode(node: AST.Node, registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+  return checkerMap[node.nodeType].check(node, registeredNodes);
 }
 
 export class TypeError {
@@ -16,7 +18,7 @@ export class TypeError {
 }
 
 export interface TypeChecker {
-  check(node: AST.Node): TypeError[];
+  check(node: AST.Node, registeredNodes: {[key: string]: AST.Node}): TypeError[];
 }
 
 class CheckNumber implements TypeChecker {
@@ -32,28 +34,19 @@ class CheckBoolean implements TypeChecker {
 }
 
 class CheckBinary implements TypeChecker {
-  check(node: AST.BinaryOperationNode): TypeError[] {
-    const errors: TypeError[] = typecheckNode(node.left).concat(typecheckNode(node.right));
+  check(node: AST.BinaryOperationNode, registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+    const errors: TypeError[] = typecheckNode(node.left, registeredNodes).concat(typecheckNode(node.right, registeredNodes));
     
     // Check if same operand type (both numbers, both booleans)
     if (node.left?.outputType?.valueType != node.right?.outputType?.valueType) {
       errors.push(new TypeError("incompatible types for binary operator", node.pos));
     }
     // Check if incorrect combination of operator and operands
-    else if (node.right?.outputType?.valueType == 'boolean' && node.operator != "^") {
+    else if (node.right?.outputType?.valueType == 'boolean' && (node.operator != "|" && node.operator != '&')) {
       errors.push(new TypeError("incompatible operation for boolean operands", node.pos));
     }
-    else if (node.right?.outputType?.valueType == 'number' && node.operator == "^") {
+    else if (node.right?.outputType?.valueType == 'number' && (node.operator == "|" || node.operator == '&')) {
       errors.push(new TypeError("incompatible operation for number operands", node.pos));
-    }
-
-    // If no type errors, update the output type of this node, based on the outputType of its inputs
-    if (errors.length == 0) {
-      if (node.right?.outputType?.status == 'Maybe-Undefined' || node.left?.outputType?.status == 'Maybe-Undefined') {
-        node.outputType = {status: 'Maybe-Undefined', valueType: node.left?.outputType?.valueType};
-      } else {
-        node.outputType = {status: 'Definitely', valueType: node.left?.outputType?.valueType};
-      }
     }
 
     return errors;
@@ -61,22 +54,29 @@ class CheckBinary implements TypeChecker {
 }
 
 class CheckFunction implements TypeChecker {
-  check(node: AST.FunctionNode): TypeError[] {
+  check(node: AST.FunctionNode, registeredNodes: {[key: string]: AST.Node}): TypeError[] {
     let errors: TypeError[] = [];
 
     // First typecheck the argument
-    const argErrors = typecheckNode(node.arg);
-    errors = errors.concat(argErrors);
+    const arg1Errors = typecheckNode(node.args[0], registeredNodes);
+    errors = errors.concat(arg1Errors);
+    if (node.args.length > 1) {
+      const arg2Errors = typecheckNode(node.args[1], registeredNodes);
+      errors = errors.concat(arg2Errors);
+      if (node.args[0]?.outputType?.valueType != node.args[1]?.outputType?.valueType) {
+        errors.push(new TypeError("arguments must have same type", node.args[0].pos));
+      }
+    }
 
     const functionName = node.name
     const argType = builtins[functionName].inputType;
-    const returnType = builtins[functionName].resultType;
 
     // we found a builtin function
     if (argType) {
 
       // typecheck the argument
-      if (argType != 'any' && node.arg?.outputType?.valueType != argType) {
+      // Assume both arguments are the same type (see error produced above)
+      if (argType != 'any' && node.args[0]?.outputType?.valueType != argType) {
         errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
       }
     }
@@ -84,32 +84,6 @@ class CheckFunction implements TypeChecker {
     // this is not a known, builtin function
     else {
       errors.push(new TypeError("unknown function", node.pos));
-    }
-
-    // only show error if in sink "node"
-    if (functionName == 'Sink') {
-      // if sink "node" takes in possibly undefined values, warn the author
-      if (node.arg?.outputType?.status == 'Maybe-Undefined') {
-        errors.push(new TypeError("User facing content could be undefined.", node.arg.pos));
-      }
-    }
-
-    // If no type errors, update the output type of this node, based on the outputType of its argument
-    if (errors.length == 0) {
-      if (node.arg?.outputType?.status == 'Maybe-Undefined' || functionName == 'Input') {
-        // IsDefined should always output a definitely regardless of argument status
-        if (functionName != 'IsDefined') {
-          node.outputType.status = 'Maybe-Undefined';
-        }
-        else {
-          node.outputType.status = 'Definitely';
-        }
-      } else {
-        node.outputType.status = 'Definitely';
-      }
-
-      node.outputType.valueType = returnType;
-
     }    
 
     return errors;
@@ -117,7 +91,7 @@ class CheckFunction implements TypeChecker {
 }
 
 class CheckChoose implements TypeChecker {
-  check(node: AST.ChooseNode): TypeError[] {
+  check(node: AST.ChooseNode, registeredNodes: {[key: string]: AST.Node}): TypeError[] {
     let errors: TypeError[] = [];
 
     const predicate = node.case.predicate;
@@ -125,18 +99,15 @@ class CheckChoose implements TypeChecker {
     const otherwise = node.otherwise;
 
     // First typecheck the inner nodes
-    const predErrors = typecheckNode(predicate);
-    const consErrors = typecheckNode(consequent);
-    const otherErrors = typecheckNode(otherwise);
+    const predErrors = typecheckNode(predicate, registeredNodes);
+    const consErrors = typecheckNode(consequent, registeredNodes);
+    const otherErrors = typecheckNode(otherwise, registeredNodes);
     errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
 
     // check return types are the same for both cases
     if (consequent?.outputType?.valueType != otherwise?.outputType?.valueType) {
       errors.push(new TypeError("Return types are not the same for both cases", consequent.pos));
       errors.push(new TypeError("Return types are not the same for both cases", otherwise.pos));
-    } else {
-      // if return types are the same, set the return type of the choose node
-      node.outputType.valueType = consequent.outputType.valueType;
     }
 
     // check that the predicate returns a boolean
@@ -144,35 +115,34 @@ class CheckChoose implements TypeChecker {
       errors.push(new TypeError("Predicate must return a boolean", predicate.pos));
     }
 
-    // propagate maybe-undefined type, or change to definitely
-    // if the predicate is not a function, we cannot error check its type
-    if (consequent.outputType.status == 'Maybe-Undefined' && predicate.nodeType == 'Function') {
-      // if the function is isDefined we need to make sure the pred and cons are equal
-      if (predicate.name == 'IsDefined' && equals(predicate.arg, consequent)) {
-        node.outputType.status = 'Definitely';
-      } else {
-        // if the predicate doesn't error check (with isDefined), it can't be Definitely
-        node.outputType.status = 'Maybe-Undefined';
-      }
-    } else if (otherwise.outputType.status == 'Maybe-Undefined') {
-      node.outputType.status = 'Maybe-Undefined';
-    } else {
-      node.outputType.status = 'Definitely';
-    }
-
     return errors;
   }
 }
 
 class CheckVariable implements TypeChecker {
-  check(node: AST.VariableAssignmentNode): TypeError[] {
-    return [];
+  check(node: AST.VariableAssignmentNode, registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+    let errors: TypeError[] = [];
+    // First typecheck the assignment node
+    const assignmentErrors = typecheckNode(node.assignment, registeredNodes);
+    errors = errors.concat(assignmentErrors);
+
+    return errors;
   }
 }
 
 class CheckIdentifier implements TypeChecker {
-  check(node: AST.IdentifierNode): TypeError[] {
-    return [];
+  check(node: AST.IdentifierNode, registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+    let errors: TypeError[] = [];
+
+    // Maybe make assigmentId be valueId?
+    let valueNode = registeredNodes[node.assignmentId].assignment;
+
+    // If this assignmentId is not found in the AST, throw an error
+    if (valueNode == undefined) {
+      errors.push(new TypeError("This variable doesn't have a value", node.pos));
+    }
+
+    return errors;
   }
 }
 
@@ -181,7 +151,10 @@ const builtins : {[name: string]: {inputType: AST.ValueType, resultType: AST.Val
   "IsDefined": {inputType: 'any', resultType: 'boolean'},
   "Inverse": {inputType: 'number', resultType: 'number'},
   "Input": {inputType: 'number', resultType: 'number'},
-  "Sink": {inputType: 'any', resultType: 'any'}
+  "Sink": {inputType: 'any', resultType: 'any'},
+  "ParseOrderedPair": {inputType: 'number', resultType: 'pair'},
+  "X": {inputType: 'pair', resultType: 'number'},
+  "Y": {inputType: 'pair', resultType: 'number'}
 }
 
 const checkerMap: Partial<{[K in AST.NodeType]: TypeChecker}> = {

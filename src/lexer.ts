@@ -78,8 +78,12 @@ function getDefaultToken(
     return emitToken('/');
   }
 
-  if (stream.match(/\^/)) {
-    return emitToken('^');
+  if (stream.match(/\|/)) {
+    return emitToken('|');
+  }
+
+  if (stream.match(/\&/)) {
+    return emitToken('&');
   }
 
   if (stream.match(/\(/)) {
@@ -125,13 +129,13 @@ function getDefaultToken(
     return emitToken('CHOOSE2');
   }
 
-  if (stream.match(/[A-Z]([a-z|A-Z])+/)) {
+  if (stream.match(/[A-Z]([a-z|A-Z])*/)) {
     return emitToken('FUNCTION');
   }
 
   // Identifiers
-  // For now, the form of a valid identifier is: an alphabetic character,
-  // followed by one or more alphanumeric characters.
+  // For now, the form of a valid identifier is: a lower-case alphabetic character,
+  // followed by zero or more alpha characters.
   if (stream.match(/[a-z]([a-z|A-Z])*/)) {
     return emitToken('IDENTIFIER');
   }
@@ -146,9 +150,8 @@ export type BinaryOperationTokenType =
   | '-'
   | '*'
   | '/'
-  | '^'
-  // NOTE: we are considering the "^" operation to be a strictly boolean operation
-  //       it will represent an "or" operation
+  | '|' // this is an or
+  | '&' // this is an and
 
 export type TokenType =
   | BinaryOperationTokenType

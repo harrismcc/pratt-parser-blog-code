@@ -11,6 +11,7 @@ export type NodeType =
   | 'Choose'
   | 'Identifier'
   | 'Function'
+  | 'Pair'
   | 'CalculatorReference';
 
 export type NumberNode = {
@@ -43,7 +44,7 @@ export type BinaryOperationNode = {
 export type FunctionNode = {
   nodeType: 'Function';
   name: string;
-  arg: Node;
+  args: Node[];
   outputType: Possible<ValueType>;
   pos: Position;
   nodeId: string;
@@ -96,10 +97,9 @@ export type Definitely<ValueType> = {
 export type Maybe<ValueType> = {
   status: 'Maybe-Undefined'; // maybe only status here? This way we can "change" status to definitely?
   valueType: ValueType;
-  // dependsOn: {varName: boolean}; // This is for when we add variables that could affect the type
 }
 
-export type ValueType = 'number' | 'boolean' | 'any' | undefined;
+export type ValueType = 'number' | 'boolean' | 'pair' | 'any' | undefined;
 
 export type Possible<ValueType> = Definitely<ValueType> | Maybe<ValueType>;
 

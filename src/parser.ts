@@ -4,14 +4,18 @@ import {TokenStream} from './tokenstream';
 import {ParseError, token2pos} from './position';
 import * as AST from './ast';
 
-export function parse(text: string, varMap: {[key: string]: string}): {nodes: AST.Node[]; errors: ParseError[]} {
+export function parse(text: string,
+                      varMap: {[key: string]: string},
+                      registeredNodes: {[key: string]: AST.Node},
+                      dependsMap: {[key: string]: string[]}): 
+                      {nodes: AST.Node[]; errors: ParseError[]} {
   const nodes: AST.Node[] = [];
 
   const tokens = new TokenStream(text);
   const parser = new Parser();
   while (tokens.peek()) {
     try {
-      nodes.push(parser.parse(tokens, 0, varMap));
+      nodes.push(parser.parse(tokens, 0, varMap, registeredNodes, dependsMap));
     } catch (e) {
       return {
         nodes,
@@ -65,7 +69,11 @@ export abstract class AbstractParser {
     }
   }
 
-  parse(tokens: TokenStream, currentBindingPower: number, varMap: {[key: string]: string}): AST.Node {
+  parse(tokens: TokenStream,
+        currentBindingPower: number,
+        varMap: {[key: string]: string},
+        registeredNodes: {[key: string]: AST.Node},
+        dependsMap: {[key: string]: string[]}): AST.Node {
     const token = tokens.consume();
     if (!token) {
       throw new ParseError(
@@ -83,7 +91,7 @@ export abstract class AbstractParser {
       );
     }
 
-    let left = initialParselet.parse(this, tokens, token, varMap);
+    let left = initialParselet.parse(this, tokens, token, varMap, registeredNodes, dependsMap);
 
     while (true) {
       const next = tokens.peek();
@@ -102,7 +110,7 @@ export abstract class AbstractParser {
       }
 
       tokens.consume();
-      left = consequentParselet.parse(this, tokens, left, next, varMap);
+      left = consequentParselet.parse(this, tokens, left, next, varMap, registeredNodes, dependsMap);
     }
 
     return left;
@@ -128,12 +136,13 @@ export class Parser extends AbstractParser {
       '-': new Parselet.BinaryOperatorParselet('-', 'left'),
       '*': new Parselet.BinaryOperatorParselet('*', 'left'),
       '/': new Parselet.BinaryOperatorParselet('/', 'left'),
-      '^': new Parselet.BinaryOperatorParselet('^', 'right'),
+      '|': new Parselet.BinaryOperatorParselet('|', 'right'),
+      '&': new Parselet.BinaryOperatorParselet('&', 'right')
     };
   }
 
   bindingClasses() {
-    const classes: TokenType[][] = [['+', '-'], ['*', '/'], ['^']];
+    const classes: TokenType[][] = [['+', '-'], ['*', '/'], ['|', '&']];
     return classes;
   }
 }
