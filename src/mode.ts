@@ -14,6 +14,7 @@ type TokenType =
   | 'string'
   | 'quote'
   | 'spam'
+  | 'function'
   | 'error'
 
 
@@ -58,6 +59,9 @@ export function MakeMode(_config: CodeMirror.EditorConfiguration, _modeOptions?:
 
         case 'ERROR':
           return 'error';
+
+        case 'FUNCTION':
+          return 'function';
 
         default:
           return assertUnreachable(type);

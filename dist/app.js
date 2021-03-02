@@ -131,6 +131,9 @@ function getDefaultToken(stream, state) {
         }
         return emitToken('COMMENT');
     }
+    if (stream.match(/[A-Z]([a-z|A-Z])*/)) {
+        return emitToken('FUNCTION');
+    }
     stream.next();
     return emitToken('ERROR');
 }
@@ -539,6 +542,8 @@ function MakeMode(_config, _modeOptions) {
                     return 'spam';
                 case 'ERROR':
                     return 'error';
+                case 'FUNCTION':
+                    return 'function';
                 default:
                     return assertUnreachable(type);
             }
@@ -661,6 +666,7 @@ class Parser extends AbstractParser {
             TRUE: new Parselet.BooleanParselet(true),
             FALSE: new Parselet.BooleanParselet(false),
             SPAM: new Parselet.SpamParslet(),
+            FUNCTION: new Parselet.FunctionParselet(),
             '(': new Parselet.ParenParselet(),
         };
     }
@@ -685,7 +691,7 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.SpamParslet = exports.BooleanParselet = exports.NumberParselet = void 0;
+exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.SpamParslet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
 class NumberParselet {
     parse(_parser, _tokens, token) {
@@ -693,12 +699,14 @@ class NumberParselet {
             return {
                 type: 'Number',
                 value: parseFloat(token.text),
+                outputType: 'number',
                 pos: position_1.token2pos(token)
             };
         }
         return {
             type: 'ConstantNumber',
             value: parseFloat(token.text),
+            outputType: 'number',
             pos: position_1.token2pos(token)
         };
     }
@@ -712,6 +720,7 @@ class BooleanParselet {
         return {
             type: 'Boolean',
             value: this.value,
+            outputType: 'boolean',
             pos: position_1.token2pos(token)
         };
     }
@@ -721,6 +730,7 @@ class SpamParslet {
     parse(_parser, _tokens, token) {
         return {
             type: 'Spam',
+            outputType: 'number',
             pos: position_1.token2pos(token)
         };
     }
@@ -752,6 +762,7 @@ class BinaryOperatorParselet extends ConsequentParselet {
         return {
             type: 'BinaryOperation',
             operator: this.tokenType,
+            outputType: 'number',
             left,
             right,
             pos: position_1.join(left.pos, position_1.token2pos(tokens.last()))
@@ -759,6 +770,30 @@ class BinaryOperatorParselet extends ConsequentParselet {
     }
 }
 exports.BinaryOperatorParselet = BinaryOperatorParselet;
+// Parse function calls
+// Limitation: Functions are allowed to take exactly one argument
+class FunctionParselet {
+    parse(parser, tokens, token) {
+        const position = position_1.token2pos(token);
+        //const id = pos2string(position);
+        tokens.expectToken('(');
+        const arg1 = parser.parse(tokens, 0); // allow for one argument
+        let args = [arg1];
+        if (token.text == "ParseOrderedPair") {
+            const arg2 = parser.parse(tokens, 0); // allow for second argument
+            args.push(arg2);
+        }
+        tokens.expectToken(')');
+        return {
+            type: 'Function',
+            name: token.text,
+            outputType: undefined,
+            args: args,
+            pos: position,
+        };
+    }
+}
+exports.FunctionParselet = FunctionParselet;
 
 });
 ___scope___.file("src/position.js", function(exports, require, module, __filename, __dirname){
@@ -840,12 +875,12 @@ ___scope___.file("src/typechecker.js", function(exports, require, module, __file
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.typecheck = void 0;
 function typecheck(nodes) {
-    const errors = nodes.map(n => typecheckNode(n));
+    const errors = nodes.map(n => typecheckNode(n, nodes));
     return [].concat(...errors);
 }
 exports.typecheck = typecheck;
-function typecheckNode(node) {
-    return checkerMap[node.type].check(node);
+function typecheckNode(node, nodes) {
+    return checkerMap[node.type].check(node, nodes);
 }
 class TypeError {
     constructor(message, position) {
@@ -865,10 +900,10 @@ class CheckBoolean {
     }
 }
 class CheckBinary {
-    check(node) {
-        const errors = typecheckNode(node.left).concat(typecheckNode(node.right));
+    check(node, nodes) {
+        const errors = typecheckNode(node.left, nodes).concat(typecheckNode(node.right, nodes));
         if (isConstantOperation(node)) {
-            errors.push(new TypeError("Is Constant Operation!", node.pos));
+            //errors.push(new TypeError("Is Constant Operation!", node.pos));
         }
         else {
             errors.push(new TypeError("Non constant operation", node.pos));
@@ -883,8 +918,49 @@ class CheckBinary {
     }
 }
 class CheckSpam {
-    check(node) {
+    check(node, nodes) {
         return [];
+    }
+}
+class CheckFunction {
+    check(node, nodes) {
+        var _a, _b, _c;
+        let errors = [];
+        // First typecheck the argument
+        const arg1Errors = typecheckNode(node.args[0], nodes);
+        errors = errors.concat(arg1Errors);
+        if (node.args.length > 1) {
+            const arg2Errors = typecheckNode(node.args[1], nodes);
+            errors = errors.concat(arg2Errors);
+            if (((_a = node.args[0]) === null || _a === void 0 ? void 0 : _a.outputType) != ((_b = node.args[1]) === null || _b === void 0 ? void 0 : _b.outputType)) {
+                errors.push(new TypeError("arguments must have same type", node.args[0].pos));
+            }
+        }
+        const functionName = node.name;
+        const argType = builtins[functionName].inputType;
+        const returnType = builtins[functionName].resultType;
+        // we found a builtin function
+        if (argType) {
+            // typecheck the argument
+            // Assume both arguments are the same type (see error produced above)
+            if (argType != 'any' && ((_c = node.args[0]) === null || _c === void 0 ? void 0 : _c.outputType) != argType) {
+                errors.push(new TypeError("incompatible argument type for " + functionName, node.pos));
+            }
+        }
+        // this is not a known, builtin function
+        else {
+            errors.push(new TypeError("unknown function", node.pos));
+        }
+        // only show error if in sink "node"
+        if (functionName == 'Sink') {
+            // if sink "node" takes in possibly undefined values, warn the author
+            // a sink has one argument
+        }
+        // If no type errors, update the output type of this node, based on the outputType of its argument
+        if (errors.length == 0) {
+            node.outputType = returnType;
+        }
+        return errors;
     }
 }
 const checkerMap = {
@@ -893,6 +969,7 @@ const checkerMap = {
     'Boolean': new CheckBoolean(),
     'BinaryOperation': new CheckBinary(),
     'Spam': new CheckSpam(),
+    'Function': new CheckFunction(),
 };
 function isConstantOperation(topNode) {
     if (topNode.type == 'Number') {
@@ -904,10 +981,25 @@ function isConstantOperation(topNode) {
     else if (topNode.type == 'BinaryOperation') {
         return isConstantOperation(topNode.left) && isConstantOperation(topNode.right);
     }
+    else if (topNode.type == 'Function') {
+        //TODO: false always here is temp, function result not always non-constant
+        return false;
+    }
     else {
         throw ('Incompatable Node type');
     }
 }
+// Dictionary of builtin functions that maps a function name to the type of its argument
+const builtins = {
+    "IsDefined": { inputType: 'any', resultType: 'boolean' },
+    "Inverse": { inputType: 'number', resultType: 'number' },
+    "Input": { inputType: 'number', resultType: 'number' },
+    "Sink": { inputType: 'any', resultType: 'any' },
+    "ParseOrderedPair": { inputType: 'number', resultType: 'pair' },
+    "X": { inputType: 'pair', resultType: 'number' },
+    "Y": { inputType: 'pair', resultType: 'number' },
+    "RandomChoice": { inputType: 'number', resultType: 'number' }
+};
 
 });
 return ___scope___.entry = "src/index.js";

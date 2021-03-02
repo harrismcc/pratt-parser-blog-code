@@ -114,6 +114,10 @@ function getDefaultToken(
     return emitToken('COMMENT');
   }
 
+  if (stream.match(/[A-Z]([a-z|A-Z])*/)) {
+    return emitToken('FUNCTION');
+  }
+
   stream.next();
   return emitToken('ERROR');
 }
@@ -134,6 +138,7 @@ export type TokenType =
   | ')'
   | 'COMMENT'
   | 'SPAM'
+  | 'FUNCTION'
   | 'ERROR';
 
 export interface Token<T extends TokenType = TokenType> {
