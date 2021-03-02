@@ -24,11 +24,8 @@ function updateOutput() {
     let dependsMap = {};
     /***** ITERATION: Remove mudErrors *****/
     const ast = parser_1.parse(cm.getDoc().getValue(), varMap, registeredNodes, dependsMap);
-    console.log("after parse");
-    const mudErrors = mudChecker_1.mudCheck(ast.nodes, registeredNodes); // add dependsMap
-    console.log("after mud");
+    const mudErrors = mudChecker_1.mudCheck(ast.nodes, registeredNodes, dependsMap); // add dependsMap
     const typeErrors = typechecker_1.typecheck(ast.nodes, registeredNodes);
-    console.log("after type");
     const allTypeErrors = mudErrors.concat(typeErrors);
     if (ast.errors.length > 0) {
         cm.setOption('script-errors', ast.errors);
@@ -38,6 +35,7 @@ function updateOutput() {
     }
     const tokens = lexer_1.getTokens(cm.getDoc().getValue());
     outputContainer.innerHTML = `\
+dependsMap: ${JSON.stringify(dependsMap, null, 2)}
 mudErrors: ${JSON.stringify(mudErrors, null, 2)}
 typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}
@@ -725,6 +723,7 @@ ___scope___.file("src/parselet.js", function(exports, require, module, __filenam
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.IdentifierParselet = exports.VariableAssignmentParselet = exports.ChooseParselet = exports.FunctionParselet = exports.BinaryOperatorParselet = exports.ConsequentParselet = exports.ParenParselet = exports.BooleanParselet = exports.NumberParselet = void 0;
 const position_1 = require("./position");
+const findBase_1 = require("./findBase");
 class NumberParselet {
     parse(_parser, _tokens, token, varMap, registeredNodes, dependsMap) {
         const position = position_1.token2pos(token);
@@ -870,7 +869,7 @@ class VariableAssignmentParselet {
             nodeId: id
         };
         registeredNodes[id] = newNode;
-        // dependsMap[id] = findBase(assignment); // NEW FUNCTION HERE
+        dependsMap[id] = findBase_1.findBases(assignment, dependsMap); // NEW FUNCTION HERE
         return newNode;
     }
 }
@@ -941,6 +940,83 @@ class ParseError {
     }
 }
 exports.ParseError = ParseError;
+
+});
+___scope___.file("src/findBase.js", function(exports, require, module, __filename, __dirname){
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.findBases = void 0;
+function findBases(node, dependsMap) {
+    return baseMap[node.nodeType].findBase(node, dependsMap);
+}
+exports.findBases = findBases;
+class BaseNumber {
+    findBase(node) {
+        return [];
+    }
+}
+class BaseBoolean {
+    findBase(node) {
+        return [];
+    }
+}
+class BaseBinary {
+    findBase(node, dependsMap) {
+        let baseList = [];
+        // recursively call findBases on left and right
+        let leftList = findBases(node.left, dependsMap);
+        baseList = baseList.concat(leftList);
+        let rightList = findBases(node.right, dependsMap);
+        baseList = baseList.concat(rightList);
+        return baseList;
+    }
+}
+// examples: x = Input(3); x = IsDefined(Input(3)); z = Inverse(x)
+// need dependsMap for the third example
+class BaseFunction {
+    findBase(node, dependsMap) {
+        console.log("in base function");
+        let baseList = [];
+        if (node.name == "Input") {
+            // this is a base
+            baseList.push(node.nodeId);
+        }
+        else {
+            // recursively call findBases on argument(s)
+            for (let i = 0; i < node.args.length; i++) {
+                baseList = baseList.concat(findBases(node.args[i], dependsMap));
+            }
+        }
+        return baseList;
+    }
+}
+// assume that choose nodes will never create their own bases
+class BaseChoose {
+    findBase(node) {
+        return [];
+    }
+}
+class BaseVariableAssignment {
+    findBase(node) {
+        return [];
+    }
+}
+class BaseIdentifier {
+    findBase(node, dependsMap) {
+        // follow the chain in the dependsMap
+        return dependsMap[node.assignmentId];
+    }
+}
+const baseMap = {
+    'Number': new BaseNumber(),
+    'Boolean': new BaseBoolean(),
+    'BinaryOperation': new BaseBinary(),
+    'Function': new BaseFunction(),
+    'Choose': new BaseChoose(),
+    'VariableAssignment': new BaseVariableAssignment(),
+    'Identifier': new BaseIdentifier()
+};
 
 });
 ___scope___.file("src/tokenstream.js", function(exports, require, module, __filename, __dirname){
@@ -1133,14 +1209,14 @@ ___scope___.file("src/mudChecker.js", function(exports, require, module, __filen
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.mudCheck = void 0;
-const equals_1 = require("./equals");
-function mudCheck(nodes, registeredNodes) {
-    const errors = nodes.map(n => mudCheckNode(n, nodes, registeredNodes));
+const findBase_1 = require("./findBase");
+function mudCheck(nodes, registeredNodes, dependsMap) {
+    const errors = nodes.map(n => mudCheckNode(n, nodes, registeredNodes, dependsMap));
     return [].concat(...errors);
 }
 exports.mudCheck = mudCheck;
-function mudCheckNode(node, nodes, registeredNodes) {
-    return mudCheckerMap[node.nodeType].mudCheck(node, nodes, registeredNodes);
+function mudCheckNode(node, nodes, registeredNodes, dependsMap) {
+    return mudCheckerMap[node.nodeType].mudCheck(node, nodes, registeredNodes, dependsMap);
 }
 class TypeError {
     constructor(message, position) {
@@ -1160,9 +1236,9 @@ class MudCheckBoolean {
     }
 }
 class MudCheckBinary {
-    mudCheck(node, nodes, registeredNodes) {
+    mudCheck(node, nodes, registeredNodes, dependsMap) {
         var _a, _b, _c, _d, _e, _f, _g, _h;
-        const errors = mudCheckNode(node.left, nodes, registeredNodes).concat(mudCheckNode(node.right, nodes, registeredNodes));
+        const errors = mudCheckNode(node.left, nodes, registeredNodes, dependsMap).concat(mudCheckNode(node.right, nodes, registeredNodes, dependsMap));
         // If no type errors, update the output type of this node, based on the outputType of its inputs
         if (((_b = (_a = node.right) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.status) == 'Maybe-Undefined' || ((_d = (_c = node.left) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.status) == 'Maybe-Undefined') {
             node.outputType = { status: 'Maybe-Undefined', valueType: (_f = (_e = node.left) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.valueType };
@@ -1174,14 +1250,14 @@ class MudCheckBinary {
     }
 }
 class MudCheckFunction {
-    mudCheck(node, nodes, registeredNodes) {
+    mudCheck(node, nodes, registeredNodes, dependsMap) {
         var _a, _b, _c, _d;
         let errors = [];
         // First typecheck the argument
-        const arg1Errors = mudCheckNode(node.args[0], nodes, registeredNodes);
+        const arg1Errors = mudCheckNode(node.args[0], nodes, registeredNodes, dependsMap);
         errors = errors.concat(arg1Errors);
         if (node.args.length > 1) {
-            const arg2Errors = mudCheckNode(node.args[1], nodes, registeredNodes);
+            const arg2Errors = mudCheckNode(node.args[1], nodes, registeredNodes, dependsMap);
             errors = errors.concat(arg2Errors);
         }
         const functionName = node.name;
@@ -1225,15 +1301,15 @@ class MudCheckFunction {
     }
 }
 class MudCheckChoose {
-    mudCheck(node, nodes, registeredNodes) {
+    mudCheck(node, nodes, registeredNodes, dependsMap) {
         let errors = [];
         const predicate = node.case.predicate;
         const consequent = node.case.consequent;
         const otherwise = node.otherwise;
         // First typecheck the inner nodes
-        const predErrors = mudCheckNode(predicate, nodes, registeredNodes);
-        const consErrors = mudCheckNode(consequent, nodes, registeredNodes);
-        const otherErrors = mudCheckNode(otherwise, nodes, registeredNodes);
+        const predErrors = mudCheckNode(predicate, nodes, registeredNodes, dependsMap);
+        const consErrors = mudCheckNode(consequent, nodes, registeredNodes, dependsMap);
+        const otherErrors = mudCheckNode(otherwise, nodes, registeredNodes, dependsMap);
         errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
         node.outputType.valueType = consequent.outputType.valueType;
         // propagate maybe-undefined type, or change to definitely
@@ -1244,7 +1320,18 @@ class MudCheckChoose {
             if (predicate.name == 'IsDefined') {
                 // we need to make sure the pred and cons are equal
                 // OR make sure all the dependencies of the consequent are in the predicate
-                if (equals_1.equals(predicate.args[0], consequent) /*|| checkDependencies(predicate.args[0], consequent, nodes)*/) {
+                // find bases of consequent
+                let consBases = findBase_1.findBases(consequent, dependsMap);
+                // look up the bases of the predicate
+                let predBases = findBase_1.findBases(predicate, dependsMap);
+                // set outputType to Definitely if consBases are contained in predBases
+                let contained = true;
+                for (let i = 0; i < consBases.length; i++) {
+                    if (predBases.find(e => e == consBases[i]) == undefined) {
+                        contained = false;
+                    }
+                }
+                if (contained) {
                     node.outputType.status = 'Definitely';
                 }
             }
@@ -1263,10 +1350,10 @@ class MudCheckChoose {
     }
 }
 class MudCheckVariable {
-    mudCheck(node, nodes, registeredNodes) {
+    mudCheck(node, nodes, registeredNodes, dependsMap) {
         let errors = [];
         // First typecheck the assignment node
-        const assignmentErrors = mudCheckNode(node.assignment, nodes, registeredNodes);
+        const assignmentErrors = mudCheckNode(node.assignment, nodes, registeredNodes, dependsMap);
         errors = errors.concat(assignmentErrors);
         // Set variable assignment node output type to the same as it's assignment
         node.outputType.status = node.assignment.outputType.status;
@@ -1276,7 +1363,7 @@ class MudCheckVariable {
     }
 }
 class MudCheckIdentifier {
-    mudCheck(node, nodes, registeredNodes) {
+    mudCheck(node, nodes, registeredNodes, dependsMap) {
         let errors = [];
         // Maybe make assigmentId be valueId?
         let valueNode = registeredNodes[node.assignmentId].assignment;
@@ -1368,108 +1455,6 @@ function findNode2(node: AST.Node, nodeId: string): AST.Node {
 
   }
 } */ 
-
-});
-___scope___.file("src/equals.js", function(exports, require, module, __filename, __dirname){
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.equals = void 0;
-function equals(left, right) {
-    if (left.nodeType != right.nodeType) {
-        return false;
-    }
-    else {
-        return equalsMap[left.nodeType].eq(left, right);
-    }
-}
-exports.equals = equals;
-class EqNumber {
-    eq(left, right) {
-        if (left.value == right.value) {
-            return true;
-        }
-        else {
-            return false;
-        }
-    }
-}
-class EqBoolean {
-    eq(left, right) {
-        if (left.value == right.value) {
-            return true;
-        }
-        else {
-            return false;
-        }
-    }
-}
-class EqBinary {
-    eq(left, right) {
-        if (left.operator == right.operator &&
-            equals(left.left, right.left) && equals(left.right, right.right)) {
-            return true;
-        }
-        else {
-            return false;
-        }
-    }
-}
-class EqFunction {
-    eq(left, right) {
-        if (left.args.length != right.args.length) {
-            return false;
-        }
-        else {
-            if (left.name == right.name &&
-                equals(left.args[0], right.args[0])) {
-                if (left.args.length > 1) {
-                    if (equals(left.args[1], right.args[1])) {
-                        return true;
-                    }
-                    else {
-                        return false;
-                    }
-                }
-                return true;
-            }
-            else {
-                return false;
-            }
-        }
-    }
-}
-// THIS IS LEFT AS AN EXERCISE TO THE READER
-class EqChoose {
-    eq(left, right) {
-        return false;
-    }
-}
-// THIS IS LEFT AS AN EXERCISE TO THE READER
-class EqVariableAssignment {
-    eq(left, right) {
-        return false;
-    }
-}
-class EqIdentifier {
-    eq(left, right) {
-        if (left.name == right.name && left.assignmentId == right.assignmentId) {
-            return true;
-        }
-        else {
-            return false;
-        }
-    }
-}
-const equalsMap = {
-    'Number': new EqNumber(),
-    'Boolean': new EqBoolean(),
-    'BinaryOperation': new EqBinary(),
-    'Function': new EqFunction(),
-    'Choose': new EqChoose(),
-    'VariableAssignment': new EqVariableAssignment(),
-    'Identifier': new EqIdentifier()
-};
 
 });
 return ___scope___.entry = "src/index.js";

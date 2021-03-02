@@ -2,7 +2,8 @@ import { TokenStream } from './tokenstream';
 import { Token, TokenType, BinaryOperationTokenType} from './lexer';
 import * as AST from './ast';
 import { AbstractParser } from './parser';
-import {ParseError, token2pos, join, pos2string} from './position'
+import {ParseError, token2pos, join, pos2string} from './position';
+import {findBases} from './findBase';
 
 export interface InitialParselet {
   parse(parser: AbstractParser,
@@ -224,7 +225,7 @@ export class VariableAssignmentParselet implements InitialParselet {
       nodeId: id
     };
     registeredNodes[id] = newNode;
-    // dependsMap[id] = findBase(assignment); // NEW FUNCTION HERE
+    dependsMap[id] = findBases(assignment, dependsMap); // NEW FUNCTION HERE
 
     return newNode;
   }

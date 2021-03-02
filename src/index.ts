@@ -23,11 +23,8 @@ function updateOutput() {
 
   /***** ITERATION: Remove mudErrors *****/
   const ast = parse(cm.getDoc().getValue(), varMap, registeredNodes, dependsMap);
-  console.log("after parse");
-  const mudErrors = mudCheck(ast.nodes, registeredNodes); // add dependsMap
-  console.log("after mud");
+  const mudErrors = mudCheck(ast.nodes, registeredNodes, dependsMap); // add dependsMap
   const typeErrors = typecheck(ast.nodes, registeredNodes);
-  console.log("after type");
   const allTypeErrors = mudErrors.concat(typeErrors);
 
   if (ast.errors.length > 0) {
@@ -38,6 +35,7 @@ function updateOutput() {
 
   const tokens = getTokens(cm.getDoc().getValue());
   outputContainer.innerHTML = `\
+dependsMap: ${JSON.stringify(dependsMap, null, 2)}
 mudErrors: ${JSON.stringify(mudErrors, null, 2)}
 typeErrors: ${JSON.stringify(typeErrors, null, 2)}
 ast: ${JSON.stringify(ast, null, 2)}

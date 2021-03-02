@@ -1,14 +1,20 @@
 import {Position} from './position';
 import * as AST from './ast';
 import {equals} from './equals';
+import {findBases} from './findBase';
 
-export function mudCheck(nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
-  const errors = nodes.map(n => mudCheckNode(n, nodes, registeredNodes));
+export function mudCheck(nodes: AST.Node[], 
+                        registeredNodes: {[key: string]: AST.Node},
+                        dependsMap: {[key: string]: string[]}): TypeError[] {
+  const errors = nodes.map(n => mudCheckNode(n, nodes, registeredNodes, dependsMap));
   return ([] as TypeError[]).concat(...errors);
 }
 
-function mudCheckNode(node: AST.Node, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
-  return mudCheckerMap[node.nodeType].mudCheck(node, nodes, registeredNodes);
+function mudCheckNode(node: AST.Node, 
+                    nodes: AST.Node[], 
+                    registeredNodes: {[key: string]: AST.Node},
+                    dependsMap: {[key: string]: string[]}): TypeError[] {
+  return mudCheckerMap[node.nodeType].mudCheck(node, nodes, registeredNodes, dependsMap);
 }
 
 export class TypeError {
@@ -16,7 +22,10 @@ export class TypeError {
 }
 
 export interface MudChecker {
-  mudCheck(node: AST.Node, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[];
+  mudCheck(node: AST.Node, 
+          nodes: AST.Node[], 
+          registeredNodes: {[key: string]: AST.Node},
+          dependsMap: {[key: string]: string[]}): TypeError[];
 }
 
 class MudCheckNumber implements MudChecker {
@@ -32,8 +41,11 @@ class MudCheckBoolean implements MudChecker {
 }
 
 class MudCheckBinary implements MudChecker {
-    mudCheck(node: AST.BinaryOperationNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
-        const errors: TypeError[] = mudCheckNode(node.left, nodes, registeredNodes).concat(mudCheckNode(node.right, nodes, registeredNodes));
+    mudCheck(node: AST.BinaryOperationNode, 
+            nodes: AST.Node[], 
+            registeredNodes: {[key: string]: AST.Node},
+            dependsMap: {[key: string]: string[]}): TypeError[] {
+        const errors: TypeError[] = mudCheckNode(node.left, nodes, registeredNodes, dependsMap).concat(mudCheckNode(node.right, nodes, registeredNodes, dependsMap));
 
         // If no type errors, update the output type of this node, based on the outputType of its inputs
         if (node.right?.outputType?.status == 'Maybe-Undefined' || node.left?.outputType?.status == 'Maybe-Undefined') {
@@ -49,14 +61,17 @@ class MudCheckBinary implements MudChecker {
 }
 
 class MudCheckFunction implements MudChecker {
-    mudCheck(node: AST.FunctionNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+    mudCheck(node: AST.FunctionNode, 
+            nodes: AST.Node[], 
+            registeredNodes: {[key: string]: AST.Node},
+            dependsMap: {[key: string]: string[]}): TypeError[] {
         let errors: TypeError[] = [];
 
         // First typecheck the argument
-        const arg1Errors = mudCheckNode(node.args[0], nodes, registeredNodes);
+        const arg1Errors = mudCheckNode(node.args[0], nodes, registeredNodes, dependsMap);
         errors = errors.concat(arg1Errors);
         if (node.args.length > 1) {
-        const arg2Errors = mudCheckNode(node.args[1], nodes, registeredNodes);
+        const arg2Errors = mudCheckNode(node.args[1], nodes, registeredNodes, dependsMap);
         errors = errors.concat(arg2Errors);
         }
 
@@ -103,7 +118,10 @@ class MudCheckFunction implements MudChecker {
 }
 
 class MudCheckChoose implements MudChecker {
-    mudCheck(node: AST.ChooseNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+    mudCheck(node: AST.ChooseNode, 
+            nodes: AST.Node[], 
+            registeredNodes: {[key: string]: AST.Node},
+            dependsMap: {[key: string]: string[]}): TypeError[] {
         let errors: TypeError[] = [];
 
         const predicate = node.case.predicate;
@@ -111,9 +129,9 @@ class MudCheckChoose implements MudChecker {
         const otherwise = node.otherwise;
 
         // First typecheck the inner nodes
-        const predErrors = mudCheckNode(predicate, nodes, registeredNodes);
-        const consErrors = mudCheckNode(consequent, nodes, registeredNodes);
-        const otherErrors = mudCheckNode(otherwise, nodes, registeredNodes);
+        const predErrors = mudCheckNode(predicate, nodes, registeredNodes, dependsMap);
+        const consErrors = mudCheckNode(consequent, nodes, registeredNodes, dependsMap);
+        const otherErrors = mudCheckNode(otherwise, nodes, registeredNodes, dependsMap);
         errors = errors.concat(predErrors).concat(consErrors).concat(otherErrors);
 
         node.outputType.valueType = consequent.outputType.valueType;
@@ -126,9 +144,23 @@ class MudCheckChoose implements MudChecker {
         if (predicate.name == 'IsDefined') {
             // we need to make sure the pred and cons are equal
             // OR make sure all the dependencies of the consequent are in the predicate
-            if (equals(predicate.args[0], consequent) /*|| checkDependencies(predicate.args[0], consequent, nodes)*/) {
-            node.outputType.status = 'Definitely';
+
+            // find bases of consequent
+            let consBases = findBases(consequent, dependsMap);
+            // look up the bases of the predicate
+            let predBases = findBases(predicate, dependsMap);
+            // set outputType to Definitely if consBases are contained in predBases
+
+            let contained = true;
+            for (let i = 0; i < consBases.length; i++) {
+              if (predBases.find(e => e == consBases[i]) == undefined) {
+                contained = false;
+              }
             }
+            if (contained) {
+              node.outputType.status = 'Definitely';
+            }
+
         } else {
             // if the predicate doesn't error check (with isDefined), it can't be Definitely
             node.outputType.status = 'Maybe-Undefined';
@@ -144,10 +176,13 @@ class MudCheckChoose implements MudChecker {
 }
 
 class MudCheckVariable implements MudChecker {
-    mudCheck(node: AST.VariableAssignmentNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+    mudCheck(node: AST.VariableAssignmentNode, 
+            nodes: AST.Node[], 
+            registeredNodes: {[key: string]: AST.Node},
+            dependsMap: {[key: string]: string[]}): TypeError[] {
     let errors: TypeError[] = [];
     // First typecheck the assignment node
-    const assignmentErrors = mudCheckNode(node.assignment, nodes, registeredNodes);
+    const assignmentErrors = mudCheckNode(node.assignment, nodes, registeredNodes, dependsMap);
     errors = errors.concat(assignmentErrors);
 
     // Set variable assignment node output type to the same as it's assignment
@@ -160,7 +195,10 @@ class MudCheckVariable implements MudChecker {
 }
 
 class MudCheckIdentifier implements MudChecker {
-    mudCheck(node: AST.IdentifierNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+    mudCheck(node: AST.IdentifierNode, 
+            nodes: AST.Node[], 
+            registeredNodes: {[key: string]: AST.Node},
+            dependsMap: {[key: string]: string[]}): TypeError[] {
     let errors: TypeError[] = [];
 
     // Maybe make assigmentId be valueId?
