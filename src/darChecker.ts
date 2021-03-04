@@ -39,9 +39,6 @@ class DarCheckBinary implements DarChecker {
         if (topNode.nodeType == 'Number'){
             return false;
         }
-        else if (topNode.nodeType == 'ConstantNumber'){
-            return true;
-        }
         else if (topNode.nodeType == 'BinaryOperation'){
             return this.isConstantOperation(topNode.left) && this.isConstantOperation(topNode.right);
         }
@@ -71,7 +68,6 @@ class DarCheckBinary implements DarChecker {
 
 const darCheckerMap: Partial<{[K in AST.NodeType]: DarChecker}> = {
 'Number' : new DarCheckNumber(),
-'ConstantNumber' : new DarCheckNumber(),
 //'Boolean' : new CheckBoolean(),
 'BinaryOperation' : new DarCheckBinary(),
 //'Function' : new DarCheckFunction(),

@@ -25,7 +25,7 @@ export class NumberParselet implements InitialParselet {
     const id = pos2string(position);
     // add node to the map
     let newNode = {
-      nodeType: 'ConstantNumber' as 'ConstantNumber',
+      nodeType: 'Number' as 'Number',
       value: parseFloat(token.text),
       outputType: { status: 'Definitely' as 'Definitely',
                     valueType: 'number' as 'number' },
@@ -116,7 +116,7 @@ export class BinaryOperatorParselet extends ConsequentParselet {
       registeredNodes,
       dependsMap
     );
-    const position = join(left.pos, token2pos(tokens.last()));
+    const position = join(left!.pos, token2pos(tokens.last()));
     const id = pos2string(position);
     let newNode = {
       nodeType: 'BinaryOperation' as 'BinaryOperation',

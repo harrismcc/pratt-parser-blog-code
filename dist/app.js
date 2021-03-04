@@ -736,7 +736,7 @@ class NumberParselet {
         const id = position_1.pos2string(position);
         // add node to the map
         let newNode = {
-            nodeType: 'ConstantNumber',
+            nodeType: 'Number',
             value: parseFloat(token.text),
             outputType: { status: 'Definitely',
                 valueType: 'number' },
@@ -1202,13 +1202,12 @@ const builtins = {
 };
 const checkerMap = {
     'Number': new CheckNumber(),
-    'ConstantNumber': new CheckNumber(),
     'Boolean': new CheckBoolean(),
     'BinaryOperation': new CheckBinary(),
     'Function': new CheckFunction(),
     'Choose': new CheckChoose(),
     'VariableAssignment': new CheckVariable(),
-    'Identifier': new CheckIdentifier(),
+    'Identifier': new CheckIdentifier()
 };
 
 });
@@ -1245,9 +1244,6 @@ class DarCheckBinary {
         if (topNode.nodeType == 'Number') {
             return false;
         }
-        else if (topNode.nodeType == 'ConstantNumber') {
-            return true;
-        }
         else if (topNode.nodeType == 'BinaryOperation') {
             return this.isConstantOperation(topNode.left) && this.isConstantOperation(topNode.right);
         }
@@ -1272,7 +1268,6 @@ class DarCheckBinary {
 }
 const darCheckerMap = {
     'Number': new DarCheckNumber(),
-    'ConstantNumber': new DarCheckNumber(),
     //'Boolean' : new CheckBoolean(),
     'BinaryOperation': new DarCheckBinary(),
 };
