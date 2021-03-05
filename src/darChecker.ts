@@ -4,6 +4,9 @@ import {equals} from './equals';
 
 
 
+let testMap : Map<string, {'constant' : boolean}>;
+
+
 export function darCheck(nodes: AST.Node[],  registeredNodes: {[key: string]: AST.Node}): TypeError[] {
     const errors = nodes.map(n => darCheckNode(n, nodes, registeredNodes));
     return ([] as TypeError[]).concat(...errors);
@@ -18,6 +21,7 @@ export class TypeError {
   }
 
 export interface DarChecker {
+
     darCheck(node: AST.Node,
             nodes: AST.Node[], 
             registeredNodes: {[key: string]: AST.Node},): TypeError[];
@@ -25,10 +29,22 @@ export interface DarChecker {
 
 class DarCheckNumber implements DarChecker {
     darCheck(node: AST.NumberNode): TypeError[] {
-      return [];
+        return [];
     }
   }
 
+
+  class DarCheckFunction implements DarChecker{
+      darCheck(node: AST.FunctionNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}) : TypeError[]{
+          
+        
+        if (node.name == "RandomChoice"){
+            throw('This is Random Choice')
+        }
+        
+        return []
+      }
+  }
 
 class DarCheckBinary implements DarChecker {
     isConstantOperation(topNode : AST.Node) : boolean {
@@ -70,7 +86,7 @@ const darCheckerMap: Partial<{[K in AST.NodeType]: DarChecker}> = {
 'Number' : new DarCheckNumber(),
 //'Boolean' : new CheckBoolean(),
 'BinaryOperation' : new DarCheckBinary(),
-//'Function' : new DarCheckFunction(),
+'Function' : new DarCheckFunction(),
 //'Choose': new CheckChoose(),
 //'VariableAssignment': new CheckVariable(),
 //'Identifier': new CheckIdentifier()

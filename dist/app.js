@@ -1216,6 +1216,7 @@ ___scope___.file("src/darChecker.js", function(exports, require, module, __filen
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.darCheck = void 0;
+let testMap;
 function darCheck(nodes, registeredNodes) {
     const errors = nodes.map(n => darCheckNode(n, nodes, registeredNodes));
     return [].concat(...errors);
@@ -1233,6 +1234,14 @@ class TypeError {
 exports.TypeError = TypeError;
 class DarCheckNumber {
     darCheck(node) {
+        return [];
+    }
+}
+class DarCheckFunction {
+    darCheck(node, nodes, registeredNodes) {
+        if (node.name == "RandomChoice") {
+            throw ('This is Random Choice');
+        }
         return [];
     }
 }
@@ -1270,6 +1279,7 @@ const darCheckerMap = {
     'Number': new DarCheckNumber(),
     //'Boolean' : new CheckBoolean(),
     'BinaryOperation': new DarCheckBinary(),
+    'Function': new DarCheckFunction(),
 };
 
 });
