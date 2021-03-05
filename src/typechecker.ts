@@ -39,7 +39,7 @@ class CheckBinary implements TypeChecker {
     
     // Check if same operand type (both numbers, both booleans)
     if (node.left?.outputType?.valueType != node.right?.outputType?.valueType) {
-      errors.push(new TypeError("incompatible types for binary operator", node.pos));
+      //errors.push(new TypeError("incompatible types for binary operator", node.pos));
     }
     // Check if incorrect combination of operator and operands
     else if (node.right?.outputType?.valueType == 'boolean' && (node.operator != "|" && node.operator != '&')) {

@@ -1101,7 +1101,7 @@ class CheckBinary {
         const errors = typecheckNode(node.left, registeredNodes).concat(typecheckNode(node.right, registeredNodes));
         // Check if same operand type (both numbers, both booleans)
         if (((_b = (_a = node.left) === null || _a === void 0 ? void 0 : _a.outputType) === null || _b === void 0 ? void 0 : _b.valueType) != ((_d = (_c = node.right) === null || _c === void 0 ? void 0 : _c.outputType) === null || _d === void 0 ? void 0 : _d.valueType)) {
-            errors.push(new TypeError("incompatible types for binary operator", node.pos));
+            //errors.push(new TypeError("incompatible types for binary operator", node.pos));
         }
         // Check if incorrect combination of operator and operands
         else if (((_f = (_e = node.right) === null || _e === void 0 ? void 0 : _e.outputType) === null || _f === void 0 ? void 0 : _f.valueType) == 'boolean' && (node.operator != "|" && node.operator != '&')) {
@@ -1216,7 +1216,7 @@ ___scope___.file("src/darChecker.js", function(exports, require, module, __filen
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TypeError = exports.darCheck = void 0;
-let testMap;
+let duChain = new Map();
 function darCheck(nodes, registeredNodes) {
     const errors = nodes.map(n => darCheckNode(n, nodes, registeredNodes));
     return [].concat(...errors);
@@ -1261,7 +1261,7 @@ class DarCheckBinary {
             return false;
         }
         else {
-            throw ('Incompatable Node type');
+            //throw('Incompatable Node type');
         }
     }
     darCheck(node, nodes, registeredNodes) {
@@ -1275,11 +1275,50 @@ class DarCheckBinary {
         return errors;
     }
 }
+class DarCheckVariable {
+    darCheck(node, nodes, registeredNodes) {
+        //new assignment, update def-use chain to hold new def
+        duChain.set(node.nodeId, []);
+        //make sure the identifier is resolved as a use
+        darCheckNode(node.assignment, nodes, registeredNodes);
+        return [];
+    }
+}
+class DarCheckIdentifier {
+    getOutputType(node, registeredNodes) {
+        if ((node === null || node === void 0 ? void 0 : node.outputType) != undefined && node.outputType.valueType != undefined) {
+            return node.outputType;
+        }
+        else if ((node === null || node === void 0 ? void 0 : node.nodeType) == "Identifier") {
+            return this.getOutputType(registeredNodes[node.assignmentId], registeredNodes);
+        }
+        else if ((node === null || node === void 0 ? void 0 : node.nodeType) == "VariableAssignment") {
+            return this.getOutputType(node.assignment, registeredNodes);
+        }
+        else {
+            console.log("No output type for node ", node === null || node === void 0 ? void 0 : node.nodeType);
+            return undefined;
+        }
+    }
+    darCheck(node, nodes, registeredNodes) {
+        //new use, update def-use chain to hold new use
+        let oldChain = duChain.get(node.assignmentId); //assignmentId corresponds to the node id of the identifiers VariableAssignment
+        if (oldChain == undefined) {
+            oldChain = [];
+        }
+        duChain.set(node.assignmentId, oldChain.concat([node.nodeId]));
+        console.log("Output Type:", this.getOutputType(node, registeredNodes));
+        return [];
+    }
+}
 const darCheckerMap = {
     'Number': new DarCheckNumber(),
     //'Boolean' : new CheckBoolean(),
     'BinaryOperation': new DarCheckBinary(),
     'Function': new DarCheckFunction(),
+    //'Choose': new CheckChoose(),
+    'VariableAssignment': new DarCheckVariable(),
+    'Identifier': new DarCheckIdentifier()
 };
 
 });

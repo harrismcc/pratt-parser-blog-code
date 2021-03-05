@@ -4,7 +4,8 @@ import {equals} from './equals';
 
 
 
-let testMap : Map<string, {'constant' : boolean}>;
+
+let duChain : Map<string, string[]> = new Map();
 
 
 export function darCheck(nodes: AST.Node[],  registeredNodes: {[key: string]: AST.Node}): TypeError[] {
@@ -13,7 +14,7 @@ export function darCheck(nodes: AST.Node[],  registeredNodes: {[key: string]: AS
 }
 
 function darCheckNode(node: AST.Node, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
-return darCheckerMap[node.nodeType].darCheck(node, nodes, registeredNodes);
+    return darCheckerMap[node.nodeType].darCheck(node, nodes, registeredNodes);
 }
 
 export class TypeError {
@@ -63,7 +64,7 @@ class DarCheckBinary implements DarChecker {
             return false;
         }
         else {
-            throw('Incompatable Node type');
+            //throw('Incompatable Node type');
         }
     }
     darCheck(node: AST.BinaryOperationNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
@@ -80,6 +81,53 @@ class DarCheckBinary implements DarChecker {
     }
 }
 
+class DarCheckVariable implements DarChecker {
+    darCheck(node: AST.VariableAssignmentNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+
+
+
+        //new assignment, update def-use chain to hold new def
+        duChain.set(node.nodeId, []);
+
+        //make sure the identifier is resolved as a use
+        darCheckNode(node.assignment, nodes, registeredNodes);
+
+
+        return [];
+    }
+}
+
+class DarCheckIdentifier implements DarChecker {
+    getOutputType(node: AST.Node, registeredNodes: {[key: string]: AST.Node}) : AST.Possible<AST.ValueType> | undefined{
+
+        if (node?.outputType != undefined && node.outputType.valueType != undefined){
+            return node.outputType;
+        } else if (node?.nodeType == "Identifier"){
+            return this.getOutputType(registeredNodes[node!.assignmentId], registeredNodes);
+        } else if (node?.nodeType == "VariableAssignment"){
+
+            return this.getOutputType(node.assignment, registeredNodes);
+        }
+        else {
+            console.log("No output type for node ", node?.nodeType);
+            return undefined;
+        }
+    }
+    darCheck(node: AST.IdentifierNode, nodes: AST.Node[], registeredNodes: {[key: string]: AST.Node}): TypeError[] {
+
+        //new use, update def-use chain to hold new use
+        let oldChain = duChain.get(node.assignmentId); //assignmentId corresponds to the node id of the identifiers VariableAssignment
+        if (oldChain == undefined){
+            oldChain = [];
+        }
+        duChain.set(node.assignmentId, oldChain.concat([node.nodeId]) );
+        
+        console.log("Output Type:", this.getOutputType(node, registeredNodes));
+
+        return [];
+    }
+  }
+
 
 
 const darCheckerMap: Partial<{[K in AST.NodeType]: DarChecker}> = {
@@ -88,6 +136,6 @@ const darCheckerMap: Partial<{[K in AST.NodeType]: DarChecker}> = {
 'BinaryOperation' : new DarCheckBinary(),
 'Function' : new DarCheckFunction(),
 //'Choose': new CheckChoose(),
-//'VariableAssignment': new CheckVariable(),
-//'Identifier': new CheckIdentifier()
+'VariableAssignment': new DarCheckVariable(),
+'Identifier': new DarCheckIdentifier()
 }
